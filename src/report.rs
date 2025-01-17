@@ -118,7 +118,7 @@ impl<T> From<Report> for Result<T> {
 impl Display for Report {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
 		assert!(self.span.is_some() || self.label.is_none());
-		assert!(self.span.is_none() || self.file != "");
+		assert!(self.span.is_some() || (self.file == ""));
 
 		if self.kind >= ReportKind::_ERROR_ {
 			ERR_COUNT.fetch_add(1, Ordering::Relaxed);

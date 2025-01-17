@@ -13,7 +13,7 @@ use colored::Colorize;
 mod args;
 mod lexer;
 mod parser;
-mod codegen;
+// mod codegen;
 mod report;
 mod util;
 mod span;
@@ -52,18 +52,18 @@ fn main() {
 	}
 
 
-	let code = codegen::Gen::codegen(ast, &handler);
-
-	if args.debug {
-		eprintln!("\n{}", "CODEGEN".bold());
-		eprintln!("{code}");
-	}
-
-	if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
-		std::process::exit(1);
-	}
-
-	println!("{code}");
+	// let code = codegen::Gen::codegen(ast, &handler);
+	//
+	// if args.debug {
+	// 	eprintln!("\n{}", "CODEGEN".bold());
+	// 	eprintln!("{code}");
+	// }
+	//
+	// if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
+	// 	std::process::exit(1);
+	// }
+	//
+	// println!("{code}");
 
 	handler.terminate();
 }

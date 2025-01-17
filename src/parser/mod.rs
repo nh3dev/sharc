@@ -29,7 +29,7 @@ impl<'src> Parser<'src> {
 		// assert!(self.index < self.tokens.len(), "advance() out of bounds");
 	}
 
-	pub fn parse(tokens: Vec<Token<'src>>, filename: &'src str, handler: &LogHandler) -> Vec<Node<'src>> {
+	pub fn parse(tokens: Vec<Token<'src>>, filename: &'static str, handler: &LogHandler) -> Vec<Node<'src>> {
 		let mut ast = Vec::new();
 
 		if tokens.is_empty() { return ast; }
@@ -43,7 +43,7 @@ impl<'src> Parser<'src> {
 			match parser.parse_global() {
 				Ok(global)  => ast.push(global),
 				Err(report) => {
-					handler.log(report);
+					handler.log(report.file(filename));
 					if matches!(parser.current().kind, TokenKind::EOF) { break; }
 
 					while !matches!(parser.current().kind, 
@@ -59,7 +59,7 @@ impl<'src> Parser<'src> {
 		ast
 	}
 
-	fn parse_global(&mut self) -> Result<AST<'src>> {
+	fn parse_global(&mut self) -> Result<Node<'src>> {
 		let token = self.current();
 
 		match token.kind {
@@ -72,9 +72,14 @@ impl<'src> Parser<'src> {
 						.untitled().span(token.span).as_err();
 				}
 
-				match self.parse_global()? {
-					AST::Func { name, args, ret, body, .. } 
-						=> Ok(AST::Func { name, args, ret, body, export: true }),
+        let mut r = self.parse_global()?;
+
+				match r.kind {
+					NodeKind::Func { name, args, ret, body, .. } 
+						=> Ok({
+                r.kind = NodeKind::Func { name, args, ret, body, export: true };
+                r
+            }),
 					// TODO: const/static
 					_ => unreachable!(),
 				}
@@ -84,7 +89,7 @@ impl<'src> Parser<'src> {
 		}
 	}
 
-	fn parse_func(&mut self) -> Result<AST<'src>> {
+	fn parse_func(&mut self) -> Result<Node<'src>> {
 		self.advance();
 
 		let token = self.current();
@@ -148,10 +153,10 @@ impl<'src> Parser<'src> {
 			if single_stmt { vec![self.parse_stmt()?] } 
 			else { self.parse_block()? };
 
-		Ok(AST::Func { name, args, ret, body, export: false })
+		Ok(Node { kind: NodeKind::Func { name, args, ret, body, export: false }, span: token.span.extend(&self.current().span) })
 	}
 
-	fn parse_block(&mut self) -> Result<Vec<AST<'src>>> {
+	fn parse_block(&mut self) -> Result<Vec<Node<'src>>> {
 		let mut body = Vec::new();
 
 		loop {
@@ -169,7 +174,7 @@ impl<'src> Parser<'src> {
 		Ok(body)
 	}
 
-	fn parse_stmt(&mut self) -> Result<AST<'src>> {
+	fn parse_stmt(&mut self) -> Result<Node<'src>> {
 		let ast = self.parse_expr()?;
 
 		let token = self.current();
@@ -183,13 +188,15 @@ impl<'src> Parser<'src> {
 		Ok(ast)
 	}
 
-	fn parse_expr(&mut self) -> Result<AST<'src>> {
+	fn parse_expr(&mut self) -> Result<Node<'src>> {
 		let token = self.current();
 
 		let ast = match token.kind {
 			TokenKind::KWRet => {
 				self.advance();
-				AST::Ret(Box::new(self.parse_expr()?))
+        // TODO:
+        // Verify
+				NodeKind::Ret(Box::new(self.parse_expr()?))
 			},
 
 			TokenKind::Dollar => {
@@ -233,19 +240,19 @@ impl<'src> Parser<'src> {
 					_ => vec![self.parse_expr()?],
 				};
 
-				AST::FuncCall { name, args }
+				NodeKind::FuncCall { name, args }
 			},
 
 			TokenKind::StringLiteral => {
 				let text = token.text;
 				self.advance();
-				AST::StrLit(text)
+				NodeKind::StrLit(text)
 			},
 
 			TokenKind::DecimalIntLiteral => {
 				let text = token.text;
 				self.advance();
-				AST::UIntLit(text.parse::<u64>()
+				NodeKind::UIntLit(text.parse::<u64>()
 					.map_err(|_| ReportKind::InvalidNumber
 						.title("Invalid integer literal")
 						.span(token.span))?)
@@ -259,8 +266,10 @@ impl<'src> Parser<'src> {
 			// _ => self.parse_expr()?,
 		};
 
-		Ok(ast)
-	}
+    // TODO:
+    // Verify span.
+		Ok(Node { kind: ast, span: token.span.extend(&self.current().span) })
+}
 
 	fn parse_type(&mut self) -> Result<Type<'src>> {
 		let token = self.current();

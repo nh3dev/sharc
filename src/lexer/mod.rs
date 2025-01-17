@@ -94,7 +94,7 @@ impl<'src> Lexer<'src> {
 					}
 
 					
-					let ident = lex.slice(index, lex.index);
+					let ident = lex.slice(index, lex.index + 1);
 					let kind = match ident {
 						"fn"     => TokenKind::KWFn,
 						"export" => TokenKind::KWExport,
