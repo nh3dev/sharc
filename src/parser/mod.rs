@@ -113,7 +113,7 @@ impl<'src> Parser<'src> {
 		}
 
 		let mut args = Vec::new();
-		loop { // FIXME: parse more than one arg. ex: `$printf("num: %d", 42)`
+		loop {
 			self.advance();
 			let token = self.current();
 			match token.kind {
@@ -209,6 +209,7 @@ impl<'src> Parser<'src> {
 			},
 
 			TokenKind::Dollar => {
+				// FIXME: parse more than one arg. ex: `$printf("num: %d", 42)`
 				self.advance();
 				let token = self.current();
 
@@ -228,18 +229,25 @@ impl<'src> Parser<'src> {
 						loop {
 							self.advance();
 							let token = self.current();
+
 							match token.kind {
 								TokenKind::RParen => break,
-								_ => {
-									args.push(self.parse_expr()?);
-									if !matches!(self.current().kind, TokenKind::Comma) { break; }
-									self.advance();
-								},
+								TokenKind::Comma => (),
+								_ => args.push(self.parse_expr()?)
 							}
 
-							if !matches!(self.current().kind, TokenKind::RParen) {
+							if ![
+								TokenKind::Identifier,
+								TokenKind::FloatLiteral,
+								TokenKind::DecimalIntLiteral,
+								TokenKind::Dollar,
+								TokenKind::LParen,
+								TokenKind::Comma,
+								TokenKind::RParen,
+								// TODO: Other expected tokens
+							].iter().any(|&t| self.current().kind == t) {
 								return ReportKind::UnexpectedToken
-									.title("Expected ')'")
+									.title(format!("Got unexpected token '{:?}'", self.current().kind))
 									.span(self.current().span).as_err();
 							}
 						}
