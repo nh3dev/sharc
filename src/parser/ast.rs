@@ -40,7 +40,7 @@ pub enum Node<'src> {
 		name: Sp<&'src str>,
 		args: Vec<Sp<Node<'src>>>,
 	},
-	StrLit(&'src str),
+	StrLit(String),
 	UIntLit(u64),
 }
 
