@@ -268,14 +268,15 @@ impl<'src> Parser<'src> {
 				self.advance();
 				let args = match self.current().kind {
 					TokenKind::LParen => {
+						self.advance();
 						let mut args = Vec::new();
+
 						loop {
-							self.advance();
 							let token = self.current();
 
 							match token.kind {
 								TokenKind::RParen => break,
-								TokenKind::Comma => (),
+								TokenKind::Comma => self.advance(),
 								_ => args.push(self.parse_expr()?)
 							}
 
@@ -294,6 +295,8 @@ impl<'src> Parser<'src> {
 									.span(self.current().span).as_err();
 							}
 						}
+						
+						self.advance();
 
 						args
 					},
