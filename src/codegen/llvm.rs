@@ -3,8 +3,8 @@ use std::fmt::{self, Formatter, Display};
 pub type Name = String;
 
 #[derive(Default)]
-pub struct Module<'src> {
-	pub name:  &'src str,
+pub struct Module {
+	pub name:  &'static str,
 
 	pub data:  Vec<DataDef>,
 	pub decls: Vec<FuncDecl>,
@@ -98,7 +98,7 @@ impl Display for FuncAttr {
 	}
 }
 
-impl Display for Module<'_> {
+impl Display for Module {
 	fn fmt(&self, f: &mut Formatter) -> fmt::Result {
 		self.data .iter().try_for_each(|d| writeln!(f, "{d}"))?;
 		self.decls.iter().try_for_each(|c| writeln!(f, "{c}"))?;
