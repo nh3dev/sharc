@@ -51,10 +51,11 @@ impl Analyzer {
 		self.scope.first().unwrap()
 	}
 
+	// TODO: mayhaps dont clone
 	fn find_matching_descending<F: Fn((ValId, &str, &Type)) -> bool>(&self, f: F) 
-		-> Option<(usize, &(ValId, String, Type))> {
-		self.scope.iter().enumerate().rev().find_map(|(d, scope)| // TODO: mayhaps dont clone
-			scope.locals.iter().rev().find(|(i,n,t)| f((*i,n,t))).map(|v| (d, v)))
+		-> Option<(usize, (ValId, String, Type))> {
+		self.scope.iter().enumerate().rev().find_map(|(d, scope)|
+			scope.locals.iter().rev().find(|(i,n,t)| f((*i,n,t))).cloned().map(|v| (d, v)))
 	}
 
 	pub fn analyze(ast: Vec<Sp<ast::Node>>, file: &'static str, handler: &LogHandler) -> (Vec<Node>, HashMap<ValId, String>) {
@@ -81,6 +82,13 @@ impl Analyzer {
 				if !body.is_empty() {
 					return ReportKind::SyntaxError // TODO: maybe not SyntaxError
 						.title("Extern functions cannot have a body")
+						.span(node.span)
+						.as_err();
+				}
+
+				if attrs.iter().any(|a| matches!(**a, ast::Attrs::Export)) {
+					return ReportKind::SyntaxError
+						.title("Extern functions cannot be exported")
 						.span(node.span)
 						.as_err();
 				}
@@ -116,6 +124,11 @@ impl Analyzer {
 			},
 			ast::Node::Func { name, args, ret, attrs, body } => {
 				let id = self.peek_scope_mut().new_id();
+
+				if attrs.iter().any(|a| matches!(**a, ast::Attrs::Export)) {
+					self.symbols.insert(id, name.elem.to_string());
+				}
+
 				self.push_new_scope();
 
 				let mut nargs = Vec::new();
@@ -187,20 +200,37 @@ impl Analyzer {
 						.as_err();
 				};
 
+				if fn_args.len() != args.len() {
+					return ReportKind::InvalidArgCount
+						.title(format!("Expected {} arguments, got {}", fn_args.len(), args.len()))
+						.span(node.span)
+						.as_err();
+				}
+
 				let id = match depth {
-					0 => Var::Glob(*id),
-					_ => Var::Local(*id),
+					0 => Var::Glob(id),
+					_ => Var::Local(id),
 				};
 
 				let mut nargs = Vec::new();
 				let mut nodes = Vec::new();
-				for arg in args {
+				for (inx, arg) in args.into_iter().enumerate() {
+					let span = arg.span;
 					let (t, n, v) = self.analyze_expr(arg)?;
+
+					if !cmp_ty(&t, &fn_args[inx]) {
+						return ReportKind::TypeError
+							.title("Type mismatch in function call")
+							.span(span)
+							.as_err();
+					}
 
 					// TODO: type check that args match
 					n.map(|n| nodes.push(n));
-					nargs.push((v, t));
+					nargs.push((v, fn_args[inx].clone()));
 				}
+
+				// TODO: check for ret type
 
 				nodes.push(Node::FuncCall { id, args: nargs });
 				nodes
@@ -222,8 +252,7 @@ impl Analyzer {
 					val: Node::StrLit(s).into(),
 				}), Var::Glob(id))
 			},
-			// TODO: add placeholder type for ints
-			ast::Node::UIntLit(v) => (Type::Usize, None, Var::Imm(v)),
+			ast::Node::UIntLit(v) => (Type::Puint, None, Var::Imm(v)),
 			_ => todo!(),
 		})
 	}
@@ -247,5 +276,15 @@ fn convert_ast_ty(ty: &ast::Type) -> Type {
 			args.iter().map(|t| convert_ast_ty(&t)).collect(),
 			Box::new(ret.as_ref().map_or(Type::Void, |t| convert_ast_ty(t)))),
 		ast::Type::Ident(_) => unimplemented!("ident"),
+	}
+}
+
+fn cmp_ty(ty1: &Type, ty2: &Type) -> bool {
+	match ty1 {
+		Type::Puint  => matches!(ty2, Type::Puint  | Type::U(_) | Type::Usize | Type::I(_) | Type::F(_)),
+		Type::Pint   => matches!(ty2, Type::Pint   | Type::I(_) | Type::Isize | Type::F(_)),
+		Type::Pbool  => matches!(ty2, Type::Pbool  | Type::B(_)),
+		Type::Pfloat => matches!(ty2, Type::Pfloat | Type::F(_)),
+		_ => matches!(ty1, ty2),
 	}
 }

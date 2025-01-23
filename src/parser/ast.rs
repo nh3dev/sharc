@@ -44,7 +44,6 @@ pub enum Type<'src> {
 	Ident(&'src str),
 }
 
-// TODO: better display for this shit prob
 impl Display for Node<'_> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
@@ -65,7 +64,7 @@ impl Display for Node<'_> {
 				}
 
 				writeln!(f, " {{")?;
-				body.iter().try_for_each(|s| writeln!(f, "   {s}"));
+				body.iter().try_for_each(|s| writeln!(f, "   {s}"))?;
 				write!(f, "}}")
 			},
 			Self::Assign { name, value, ty } => 

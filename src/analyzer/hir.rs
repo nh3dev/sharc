@@ -51,6 +51,7 @@ pub enum Var {
 pub enum Type {
 	U(u32), I(u32), B(u32), F(u32),
 	Usize, Isize,
+	Puint, Pint, Pbool, Pfloat,
 	Void, Never,
 	Ptr(Box<Type>),
 	Arr(Box<Type>, Option<u64>),
@@ -121,6 +122,10 @@ impl fmt::Display for Type {
 			Self::I(n)    => format!("i{n}"),
 			Self::B(n)    => format!("b{n}"),
 			Self::F(n)    => format!("f{n}"),
+			Self::Puint   => String::from("{uint}"),
+			Self::Pint    => String::from("{int}"),
+			Self::Pbool   => String::from("{bool}"),
+			Self::Pfloat  => String::from("{float}"),
 			Self::Usize   => String::from("usize"),
 			Self::Isize   => String::from("isize"),
 			Self::Void    => String::from("void"),

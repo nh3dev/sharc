@@ -30,6 +30,7 @@ pub enum ReportKind {
 	// Analyzer
 	TypeError,
 	Undefined,
+	InvalidArgCount,
 
 	// General
 	IOError,
