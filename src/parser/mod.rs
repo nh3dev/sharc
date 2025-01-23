@@ -164,10 +164,7 @@ impl<'src> Parser<'src> {
 				(match token.kind {
 					TokenKind::Colon     => vec![self.parse_stmt()?],
 					TokenKind::LBrace    => self.parse_block()?,
-					TokenKind::Semicolon => {
-						self.advance();
-						Vec::new()
-					},
+					TokenKind::Semicolon => Vec::new(),
 					_ => return ReportKind::UnexpectedToken
 						.title("Expected '{', ';', or ':'")
 						.span(token.span).as_err()?,
