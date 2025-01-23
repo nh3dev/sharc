@@ -101,6 +101,8 @@ impl Display for Type<'_> {
 			Self::Isize  => String::from("isize"),
 			Self::Void   => String::from("void"),
 			Self::Never  => String::from("never"),
+			Self::Isize  => String::from("isize"),
+			Self::Usize  => String::from("usize"),
 			Self::Opt(i) => format!("opt {i}"),
 			Self::Ptr(i) => format!("*{i}"),
 			Self::Arr(i, Some(s)) => format!("[{i}:{s}]"),
