@@ -151,7 +151,7 @@ impl fmt::Display for Type {
 impl fmt::Display for Var {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
-			Self::Imm(v)    => write!(f, "{v}"),
+			Self::Imm(v)    => write!(f, "{}", v.to_string().cyan()),
 			Self::Local(id) => write!(f, "%{}", **id),
 			Self::Glob(id)  => write!(f, "@{}", **id),
 		}

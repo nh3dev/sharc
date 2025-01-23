@@ -4,8 +4,8 @@ use crate::report::{Result, ReportKind, LogHandler};
 use crate::span::Sp;
 use crate::parser::ast;
 
-mod hir;
-use hir::{Node, ValId, Var, Type};
+mod mir;
+use mir::{Node, ValId, Var, Type};
 
 #[derive(Default)]
 pub struct Analyzer {
