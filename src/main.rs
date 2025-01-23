@@ -16,7 +16,7 @@ mod parser;
 mod analyzer;
 mod codegen;
 mod report;
-mod util;
+mod fs;
 mod span;
 
 fn main() {
@@ -27,7 +27,7 @@ fn main() {
 
 
 	if args.debug { eprintln!("\n{}", "LEXER".bold()); }
-	let tokens = lexer::Lexer::tokenize(args.file, util::CACHE.get(args.file), handler.clone());
+	let tokens = lexer::Lexer::tokenize(args.file, fs::CACHE.get(args.file), handler.clone());
 	if args.debug { tokens.iter().for_each(|token| eprintln!("{token:#}")); }
 
 	if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {

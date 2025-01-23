@@ -29,11 +29,3 @@ impl Cache {
 		contents
 	}
 }
-
-// maybe make a global unique for multi thread
-pub fn lcg(seed: &mut u64) {
-	const A: u64 = 1_664_525;
-	const C: u64 = 1_013_904_223;
-	const M: u64 = 2u64.pow(32);
-	*seed = (A.wrapping_mul(*seed)).wrapping_add(C) % M;
-}
