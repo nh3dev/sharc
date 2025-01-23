@@ -34,7 +34,7 @@ pub enum Attrs {
 #[derive(Clone)]
 pub enum Type<'src> {
 	U(u32), I(u32), B(u32), F(u32),
-	Void, Never,
+	Void, Never, Isize, Usize,
 	Opt(Box<Sp<Type<'src>>>),
 	Ptr(Box<Sp<Type<'src>>>),
 	Arr(Box<Sp<Type<'src>>>, Option<u64>),
@@ -98,6 +98,8 @@ impl Display for Type<'_> {
 			Self::F(i)   => format!("f{i}"),
 			Self::Void   => String::from("void"),
 			Self::Never  => String::from("never"),
+			Self::Isize  => String::from("isize"),
+			Self::Usize  => String::from("usize"),
 			Self::Opt(i) => format!("opt {i}"),
 			Self::Ptr(i) => format!("*{i}"),
 			Self::Arr(i, Some(s)) => format!("[{i}:{s}]"),

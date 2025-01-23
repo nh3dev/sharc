@@ -352,6 +352,8 @@ impl<'src> Parser<'src> {
 				Type::Arr(Box::new(ty), None).span(token.span.extend(&self.current().span))
 			},
 			TokenKind::Identifier => match token.text {
+				"isize" => Type::Isize,
+				"usize" => Type::Usize,
 				n if n.starts_with('u') => Type::U(n[1..].parse()
 					.map_err(|_| ReportKind::InvalidNumber
 						.title("Invalid integer in primitive type")
