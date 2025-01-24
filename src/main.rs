@@ -16,6 +16,7 @@ mod parser;
 mod analyzer;
 mod codegen;
 mod report;
+mod bigint;
 mod fs;
 mod span;
 
