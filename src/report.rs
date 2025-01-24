@@ -176,9 +176,10 @@ impl Display for Report {
 				file[span.start..=span.end].color(secondary).bold(),
 				&file[span.end+1..line_start + line.len()].trim_end())?;
 
-			writeln!(f, "{padding}{}{}",
+			writeln!(f, "{padding}{}{} {}",
 				" ".repeat(trimmed_start.len()),
-				"^".repeat(span.end+1 - span.start).color(primary).bold())?;
+				"^".repeat(span.end+1 - span.start).color(primary).bold(),
+				self.label.as_ref().unwrap_or(&String::new()))?;
 		}
 
 		if let Some(footers) = &self.footers {
