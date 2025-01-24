@@ -12,7 +12,7 @@ impl std::ops::Deref for ValId {
 pub enum Node {
 	Func {
 		id:      ValId,
-		export:  bool,
+		export:  bool, // TODO: perhaps remove, the id can be checked in the sym table
 		args:    Vec<(ValId, Type)>,
 		ret:     Type,
 		body:    Vec<Node>,

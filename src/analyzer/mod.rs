@@ -27,26 +27,32 @@ impl Scope {
 }
 
 impl Analyzer {
+	#[inline]
 	fn push_new_scope(&mut self) {
 		self.scope.push(Scope::default());
 	}
 
+	#[inline]
 	fn pop_scope(&mut self) {
 		self.scope.pop();
 	}
 
+	#[inline]
 	fn peek_scope_mut(&mut self) -> &mut Scope {
 		self.scope.last_mut().unwrap()
 	}
 
+	#[inline]
 	fn peek_scope(&self) -> &Scope {
 		self.scope.last().unwrap()
 	}
 
+	#[inline]
 	fn get_global_mut(&mut self) -> &mut Scope {
 		self.scope.first_mut().unwrap()
 	}
 
+	#[inline]
 	fn get_global(&self) -> &Scope {
 		self.scope.first().unwrap()
 	}
@@ -158,14 +164,28 @@ impl Analyzer {
 					.locals.push((id, name.elem.to_string(), ty));
 
 				// TODO: try fold? 🥺👉👈
-				let mut nbody = Vec::new();
+				let mut nodes = Vec::new();
 				for node in body {
-					nbody.extend(self.analyze_stmt(node, &ret)?);
+					nodes.extend(self.analyze_stmt(node, &ret)?);
+				}
+
+				for node in nodes.iter_mut().filter(|n| matches!(n, Node::Ret(_, _))) {
+					let Node::Ret(_, ref mut t) = node 
+						else { unreachable!() };
+
+					if !cmp_ty(&t, &ret) {
+						return ReportKind::TypeError
+							.title("Type mismatch in function call")
+							//.span(span)
+							.as_err();
+					}
+
+					*t = ret.clone();
 				}
 
 				Node::Func {
 					id, ret, 
-					body:   nbody,
+					body:   nodes,
 					args:   fargs,
 					export: attrs.iter().any(|a| matches!(**a, ast::Attrs::Export)),
 				}
@@ -225,14 +245,25 @@ impl Analyzer {
 							.as_err();
 					}
 
-					// TODO: type check that args match
 					n.map(|n| nodes.push(n));
 					nargs.push((v, fn_args[inx].clone()));
 				}
 
-				// TODO: check for ret type
+				let call = Node::FuncCall { id, args: nargs };
 
-				nodes.push(Node::FuncCall { id, args: nargs });
+				nodes.push(match *fn_ret {
+					Type::Void => call,
+					_ => {
+						let retid = self.peek_scope_mut().new_id();
+						self.peek_scope_mut().locals.push((retid, "__ret".to_string(), (*fn_ret).clone()));
+						Node::Assign {
+							id:  retid,
+							ty:  (*fn_ret).clone(),
+							val: Box::new(call),
+						}
+					},
+				});
+
 				nodes
 			},
 			_ => todo!(),
