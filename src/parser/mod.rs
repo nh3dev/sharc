@@ -9,6 +9,8 @@ use ast::{Node, Type, Attrs};
 pub struct Parser<'src> {
 	tokens:  Vec<Token<'src>>,
 	index:   usize,
+	handler: LogHandler,
+	filename: &'static str,
 }
 
 impl<'src> Parser<'src> {
@@ -36,13 +38,18 @@ impl<'src> Parser<'src> {
 		// assert!(self.index < self.tokens.len(), "advance() out of bounds");
 	}
 
-	pub fn parse(tokens: Vec<Token<'src>>, filename: &'static str, handler: &LogHandler) -> Vec<Sp<Node<'src>>> {
+	#[inline]
+	fn log(&self, report: crate::report::Report) {
+		self.handler.log(report.file(self.filename));
+	}
+
+	pub fn parse(tokens: Vec<Token<'src>>, filename: &'static str, handler: LogHandler) -> Vec<Sp<Node<'src>>> {
 		let mut ast = Vec::new();
 
 		if tokens.is_empty() { return ast; }
 
 		let mut parser = Self {
-			tokens,
+			tokens, handler, filename,
 			index: 0,
 		};
 
@@ -50,13 +57,13 @@ impl<'src> Parser<'src> {
 			match parser.parse_global() {
 				Ok(global)  => ast.push(global),
 				Err(report) => {
-					handler.log(report.file(filename));
+					parser.log(*report);
 					if matches!(parser.current().kind, TokenKind::EOF) { break; }
 
 					while !matches!(parser.current().kind, 
-						TokenKind::Semicolon|TokenKind::RBrace) {
-						parser.advance();
-					}
+						TokenKind::Semicolon|TokenKind::RBrace) 
+					{ parser.advance(); }
+					parser.advance();
 				},
 			}
 		}
@@ -191,7 +198,22 @@ impl<'src> Parser<'src> {
 					return ReportKind::UnexpectedEOF
 						.title("Expected '}'")
 						.span(self.peek(-1).unwrap().span).as_err(),
-				_ => body.push(self.parse_stmt()?),
+				_ => match self.parse_stmt() {
+					Ok(stmt) => body.push(stmt),
+					Err(report) => {
+						self.log(*report);
+						while !matches!(self.current().kind, 
+							TokenKind::Semicolon|TokenKind::RBrace) 
+						{ self.advance(); }
+
+						if matches!(self.current().kind, TokenKind::RBrace) {
+							self.advance();
+							break;
+						}
+
+						self.advance();
+					}
+				},
 			}
 		}
 
@@ -320,6 +342,7 @@ impl<'src> Parser<'src> {
 						.title("Invalid integer literal")
 						.span(token.span))?)
 			},
+			// TODO: other int literals + signed
 
 			_ => return ReportKind::UnexpectedToken
 				.title("Expected expression")

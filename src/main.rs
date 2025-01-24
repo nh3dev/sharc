@@ -37,7 +37,7 @@ fn main() {
 
 
 	if args.debug { eprintln!("\n{}", "PARSER".bold()); }
-	let ast = parser::Parser::parse(tokens, args.file, &handler);
+	let ast = parser::Parser::parse(tokens, args.file, handler.clone());
 	if args.debug { ast.iter().for_each(|n| eprintln!("{n:#}")); }
 
 	if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
