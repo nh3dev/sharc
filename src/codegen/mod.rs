@@ -1,30 +1,26 @@
 use std::collections::HashMap;
 
+use crate::analyzer::{self, AnalyzedOut};
 use crate::span::Sp;
-use crate::parser::ast::{self, Attrs, Node, Type as aType};
 use crate::report::{Result, LogHandler, ReportKind};
-use crate::analyzer::hir;
+use crate::analyzer::mir::{self, Type as mType};
 
 mod llvm;
-use llvm::{FuncAttr, Module, TypedVal};
+use llvm::{Module, Type as lType};
 
 struct Gen {
 	module: Module,
-}
-
-fn map_valid_to_name(id: &hir::ValId) -> String {
-	//TODO:
-
-	id.to_string()
+	names: HashMap<mir::ValId, analyzer::Name>
 }
 
 impl<'src> Gen {
-	pub fn codegen(file: &'static str, hirs: Vec<hir::Node<'src>>, handler: &LogHandler) -> Module {
+	pub fn codegen(file: &'static str, (mirs, names): AnalyzedOut, handler: &LogHandler) -> Module {
 		let mut cgen = Gen {
 			module: Module::default(),
+			names
 		};
 
-		hirs.iter().for_each(|global|
+		mirs.iter().for_each(|global|
 			if let Err(e) = cgen.gen_global(global) {
 				handler.log(e.file(file));
 		});
@@ -32,26 +28,29 @@ impl<'src> Gen {
 		cgen.module
 	}
 
-	fn gen_global(&mut self, x_hir: &hir::Node<'src>) -> Result<()> {
-		match x_hir {
-			hir::Node::Func { id, args, ret, export, .. } => {
-				let decl = llvm::FuncDecl {
-					name: map_valid_to_name(id),
-					attr: if *export {vec![llvm::FuncAttr::Export]} else {vec![]},
-					args: args.into_iter().map(|(_, ty)| Self::gen_type(&ty).unwrap()).collect(),
-					ret:  Self::gen_type(ret),
-				};
-
-				self.module.decls.push(decl);
-			},
-			hir::Node::Func { id, export, args, ret, body } => {
+	fn gen_global(&mut self, x_mir: &mir::Node) -> Result<()> {
+		match x_mir {
+			// NOTE:
+			// This branch can be removed. Exists just as a reference for writing codegen
+			// mir::Node::Func { id, args, ret, export, .. } => {
+			// 	let decl = llvm::FuncDecl {
+			// 		name: map_valid_to_name(id),
+			// 		attr: if *export {vec![llvm::FuncAttr::Export]} else {vec![]},
+			// 		args: args.into_iter().map(|(_, ty)| Self::gen_type(&ty).unwrap()).collect(),
+			// 		ret:  Self::gen_type(ret).unwrap(),
+			// 	};
+			//
+			// 	self.module.decls.push(decl);
+			// },
+			mir::Node::Func { id, export, args, ret, body } => {
 				let ret = Self::gen_type(ret);
 
 				let out_args = args
 					.iter()
 					.map(|(a_id, ty)| (
 						Self::gen_type(&ty).unwrap(),
-						map_valid_to_name(a_id)
+						// FIXME: Maybe don't `clone`
+						self.get_id_name(a_id).clone()
 					)).collect();
 
 				// let mut attr = FuncAttr::empty();
@@ -59,11 +58,11 @@ impl<'src> Gen {
 				// 	{ attr |= FuncAttr::EXPORT; }
 
 				let func = llvm::Function {
-					ret,
-					attr: if *export {vec![FuncAttr::Export]} else {vec![]},
-					name: map_valid_to_name(id),
+					ret: ret.expect("Return type should be `Some`."),
+					attr: if *export {vec![llvm::FuncAttr::Export]} else {vec![]},
+					name: self.get_id_name(id).clone(),
 					args: out_args,
-					body: body.iter().map(|stmt| Self::gen_stmt(stmt)).collect(),
+					body: body.iter().map(|stmt| self.gen_stmt(stmt)).collect(),
 				};
 
 				self.module.funcs.push(func);
@@ -73,26 +72,29 @@ impl<'src> Gen {
 		Ok(())
 	}
 
-	fn gen_stmt(&mut self, x_hir: hir::Node<'src>) -> llvm::Instr {
-		Ok(match x_hir {
-			hir::Node::Assign { name, ty, value } => {
-				let val = match value {
-						hir::Var::Local(id) => ()),
-						hir::Var::Glob(id) => (),
-						hir::Var::Imm(_) => (),
+	fn gen_stmt(&mut self, x_mir: &mir::Node) -> llvm::Instr {
+		match x_mir {
+			// FIXME: Very questionable cabbaging.
+			mir::Node::Assign { id, ty, val } => {
+				let llvm_instr = match &**val {
+					mir::Node::FuncCall { id, args } => 
+					llvm::Instr::Call {
+						func: self.f0(id).to_typed(Self::gen_type(ty).unwrap()),
+						args: args.iter().map(|(v_id, v_ty)| self.f0(v_id).to_typed(Self::gen_type(v_ty).unwrap())).collect()
+					},
+					mir::Node::Var(v) => llvm::Instr::Val(self.f0(v).to_typed(Self::gen_type(ty).unwrap())),
+					_ => panic!("Invalid assignment for `{id:?} : {ty}`")
 				};
-				llvm::Instr::Assign(llvm::Val(llvm::ValKind::Temp, map_valid_to_name(&name)), Box::new())
+				llvm::Instr::Assign(llvm::Val(llvm::ValKind::Local, self.get_id_name(id).clone()), Box::new(llvm_instr))
 				//Instr::Assign(Value::Temp(name.elem.to_string()), self.gen_type(&ty)?.expect("todo: implicit type"), Box::new(self.gen_stmt(*value)?))
 			},
-			hir::Node::Ret(None)       => Instr::Ret(None),
-			hir::Node::Ret(Some(expr)) => {
-				let mut val = self.gen_expr(&expr)?;
-				val.typ = self.peek_scope().ret.clone();
-				Instr::Ret(Some(val))
+			mir::Node::Ret(None, _)       => llvm::Instr::Ret(None),
+			mir::Node::Ret(Some(v), ty) => {
+				llvm::Instr::Ret(Some(self.f0(v).to_typed(Self::gen_type(ty).unwrap())))
 			},
 
 			// FIXME: move this mess to semantic analysis, that should tell us which func to call
-			hir::Node::FuncCall { name, args } => Instr::Call {
+			mir::Node::FuncCall { name, args } => Instr::Call {
 				func: match self.peek_scope().locals.get(&ValKind::Temp(name.elem.to_string())) {
 					Some((i, t)) => Val::new(ValKind::Temp(i.to_string()), self.gen_type(t)?),
 					None => match self.get_global().locals.get(&ValKind::Global(name.elem.to_string())) {
@@ -108,17 +110,17 @@ impl<'src> Gen {
 				args: args.into_iter().map(|arg| self.gen_expr(&arg)).collect::<Result<_>>()?,
 			},
 			_ => panic!("GOT: {ast}"),
-		})
+		}
 	}
 
 	fn gen_atom() -> llvm::Val {
 		todo!()
 	}
 
-	fn gen_expr(ast: &hir::Node<'src>) -> llvm::TypedVal {
+	fn gen_expr(ast: &mir::Node) -> lTypedVal {
 		match &ast {
-			hir::Node::UIntLit(n) => llvm::Val::new(ValKind::Const(*n), Type::Ptr),
-			hir::Node::StrLit(s)  => {
+			mir::Node::UIntLit(n) => llvm::Val::new(ValKind::Const(*n), Type::Ptr),
+			mir::Node::StrLit(s)  => {
 				// TODO: prevent user from naming shit like this
 				let val = ValKind::Global(format!("__tmp{}", self.gen_id()));
 
@@ -134,23 +136,35 @@ impl<'src> Gen {
 		}
 	}
 
-	fn gen_type(ty: &aType) -> Option<llvm::Type> {
+	fn gen_type(ty: &mir::Type) -> Option<lType> {
 		match &ty {
-			aType::U(i) | aType::B(i) | aType::I(i) => Some(llvm::Type::Int(*i)),
-			aType::F(i) => Some(match i {
-				16 => llvm::Type::F16,
-				32 => llvm::Type::F32,
-				64 => llvm::Type::F64,
-				128 => llvm::Type::F128,
+			mType::U(i) | mType::B(i) | mType::I(i) => Some(lType::Int(*i)),
+			mType::F(i) => Some(match i {
+				16 => lType::F16,
+				32 => lType::F32,
+				64 => lType::F64,
+				128 => lType::F128,
 				_ => unreachable!()
 			}),
 
-			aType::Void | aType::Never => None,
+			mType::Void | mType::Never => None,
 
-			aType::Opt(ty) | aType::Mut(ty) => Self::gen_type(&ty.elem),
-			aType::Ptr(_) => Some(llvm::Type::Ptr),
-			aType::Arr(_, _) => panic!("Stack arrays are not yet supported. Heap allocate instead."),
-			_ => panic!("Unexpected ast::Type when generating an llvm::Type.")
+			mType::Opt(ty) | mType::Mut(ty) => Self::gen_type(&*ty),
+			mType::Ptr(_) => Some(lType::Ptr),
+			mType::Arr(_, _) => panic!("Stack arrays are not yet supported. Heap allocate instead."),
+			_ => panic!("Unexpected ast::Type when generating an lType.")
 		}
+	}
+
+	fn f0(&self, v: &mir::Var) -> llvm::Val {
+		match v {
+    mir::Var::Imm(_) => todo!(),
+    mir::Var::Local(id) => llvm::Val(llvm::ValKind::Local, self.get_id_name(id).clone()),
+    mir::Var::Glob(id) => llvm::Val(llvm::ValKind::Global, self.get_id_name(id).clone()),
+}
+	}
+
+	fn get_id_name(&self, id: &mir::ValId) -> &String {
+		self.names.get(id).expect("ValId `{id}` was expected to have a name.")
 	}
 }
