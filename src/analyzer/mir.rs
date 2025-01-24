@@ -26,7 +26,7 @@ pub enum Node {
 	Assign {
 		id:  ValId,
 		ty:  Type,
-		val: Box<Node>,
+		val: Box<Node>, // FuncCall | Var
 	},
 	Global {
 		id:  ValId,
@@ -35,7 +35,7 @@ pub enum Node {
 	},
 	Ret(Option<Var>, Type),
 	FuncCall {
-		id: Var,
+		id: Var, // Var::Local | Var::Glob
 		args: Vec<(Var, Type)>,
 	},
 	StrLit(String),

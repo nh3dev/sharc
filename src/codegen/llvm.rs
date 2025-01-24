@@ -3,8 +3,8 @@ use std::fmt::{self, Formatter, Display};
 pub type Name = String;
 
 #[derive(Default)]
-pub struct Module<'src> {
-	pub name:  &'src str,
+pub struct Module {
+	pub name:  &'static str,
 
 	pub data:  Vec<DataDef>,
 	pub decls: Vec<FuncDecl>,
@@ -54,6 +54,9 @@ pub struct FuncDecl {
 
 pub enum Instr {
 	Assign(Val, Box<Instr>),
+	// WARN:
+	// Don't use this?
+	Val(TypedVal),
 	Ret(Option<TypedVal>),
 	Call {
 		func: TypedVal,
@@ -61,9 +64,16 @@ pub enum Instr {
 	},
 }
 
-pub enum ValKind { Temp, Global, Str, Const, }
+pub enum ValKind { Local, Global, Str, Const, }
 pub struct Val(pub ValKind, pub Name);
 pub struct TypedVal(pub Type, pub ValKind, pub Name);
+
+impl Val {
+    pub fn to_typed(self, t: Type) -> TypedVal {
+        let Val(k, n) = self;
+        TypedVal(t, k, n)
+    }
+}
 
 pub enum Type {
 	Int(u32),
@@ -98,7 +108,7 @@ impl Display for FuncAttr {
 	}
 }
 
-impl Display for Module<'_> {
+impl Display for Module {
 	fn fmt(&self, f: &mut Formatter) -> fmt::Result {
 		self.data .iter().try_for_each(|d| writeln!(f, "{d}"))?;
 		self.decls.iter().try_for_each(|c| writeln!(f, "{c}"))?;
@@ -152,6 +162,7 @@ impl Display for Instr {
 	fn fmt(&self, f: &mut Formatter) -> fmt::Result {
 		match self {
 			Self::Assign(v, i) => write!(f, "{v} = {i}"),
+			Self::Val(_) => todo!(),
 			Self::Ret(v) => write!(f, "ret {}", v.as_ref()
 				.map_or(String::new(), ToString::to_string)),
 			Self::Call { func, args } => {
@@ -169,7 +180,7 @@ impl Display for Instr {
 impl Display for Val {
 	fn fmt(&self, f: &mut Formatter) -> fmt::Result {
 		match self.0 {
-			ValKind::Temp | ValKind::Global | ValKind::Const => write!(f, "{}{}", self.0, self.1),
+			ValKind::Local | ValKind::Global | ValKind::Const => write!(f, "{}{}", self.0, self.1),
 			ValKind::Str    => {
 				write!(f, "c\"")?;
 				self.1.chars().try_for_each(|c| match c {
@@ -191,7 +202,7 @@ impl Display for TypedVal {
 impl Display for ValKind {
 	fn fmt(&self, f: &mut Formatter) -> fmt::Result {
 		match self {
-			Self::Temp   => write!(f, "%"),
+			Self::Local   => write!(f, "%"),
 			Self::Global => write!(f, "@"),
 			Self::Str    => unreachable!(),
 			Self::Const  => Ok(()),
