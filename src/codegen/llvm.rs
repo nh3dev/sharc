@@ -1,5 +1,7 @@
 use std::fmt::{self, Formatter, Display};
 
+pub type Name = String;
+
 #[derive(Default)]
 pub struct Module<'src> {
 	pub name:  &'src str,
@@ -18,7 +20,7 @@ pub enum DataAttr {
 }
 
 pub struct DataDef {
-	pub name:  String,
+	pub name:  Name,
 	pub attr:  Vec<DataAttr>,
 	pub value: Val,
 	// TODO: align
@@ -35,15 +37,15 @@ pub enum FuncAttr {
 }
 
 pub struct Function {
-	pub name: String,
+	pub name: Name,
 	pub attr: Vec<FuncAttr>,
-	pub args: Vec<(Type, String)>,
+	pub args: Vec<(Type, Name)>,
 	pub ret:  Type,
 	pub body: Vec<Instr>,
 }
 
 pub struct FuncDecl {
-	pub name: String,
+	pub name: Name,
 	pub attr: Vec<FuncAttr>,
 	pub args: Vec<Type>,
 	pub ret:  Type,
@@ -60,8 +62,8 @@ pub enum Instr {
 }
 
 pub enum ValKind { Temp, Global, Str, Const, }
-pub struct Val(pub ValKind, pub String);
-pub struct TypedVal(pub Type, pub ValKind, pub String);
+pub struct Val(pub ValKind, pub Name);
+pub struct TypedVal(pub Type, pub ValKind, pub Name);
 
 pub enum Type {
 	Int(u32),
