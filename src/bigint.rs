@@ -13,16 +13,18 @@ impl From<i64> for iBig {
 	}
 }
 
+impl std::ops::Neg for iBig {
+	type Output = Self;
+	fn neg(self) -> Self::Output 
+	{ Self(!self.0, self.1) }
+}
+
 impl std::str::FromStr for iBig {
 	type Err = std::num::ParseIntError;
 
+	// NOTE: naive impl assuming input is unsigned, use '-' to negate
 	fn from_str(mut s: &str) -> Result<Self, Self::Err> {
 		const CHUNK_SIZE: usize = 19; // max u64 is 20 digits, but leave 1 as margin
-
-		let neg = s.strip_prefix('-')
-			.map_or(false, |r| { s = r; true });
-
-		s = s.trim_start_matches('+');
 
 		let mut res = Vec::new();
 
@@ -32,7 +34,7 @@ impl std::str::FromStr for iBig {
 			s = &s[..s.len().saturating_sub(CHUNK_SIZE)];
 		}
 
-		Ok(Self(neg, res))
+		Ok(Self(false, res))
 	}
 }
 
