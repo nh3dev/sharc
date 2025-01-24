@@ -29,7 +29,7 @@ pub enum ReportKind {
 
 	// Analyzer
 	TypeError,
-	Undefined,
+	UndefinedSym,
 	InvalidArgCount,
 
 	// General

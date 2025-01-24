@@ -208,7 +208,7 @@ impl Analyzer {
 			ast::Node::FuncCall { name, args } => {
 				// TODO: do the whole overloading match thing
 				let (depth, (id, _, ty)) = self.find_matching_descending(|(_, n, _)| n == name.elem)
-					.ok_or_else(|| ReportKind::Undefined
+					.ok_or_else(|| ReportKind::UndefinedSym
 						.title(format!("Function '{}' is not defined", *name))
 						.span(name.span))?;
 
@@ -241,6 +241,7 @@ impl Analyzer {
 					if !cmp_ty(&t, &fn_args[inx]) {
 						return ReportKind::TypeError
 							.title("Type mismatch in function call")
+							.label(format!("expected '{}', found '{t}'", fn_args[inx]))
 							.span(span)
 							.as_err();
 					}
@@ -267,6 +268,33 @@ impl Analyzer {
 				self.pop_scope();
 				nodes
 			},
+			ast::Node::Assign { name, ty, value } => {
+				let (t, n, v) = self.analyze_expr(*value)?;
+
+				if matches!(*ty, ast::Type::Void) {
+					return ReportKind::TypeError
+						.title("Cannot assign as type 'void'")
+						.span(ty.span)
+						.as_err();
+				}
+
+				let ty = convert_ast_ty(&ty.elem);
+
+				if !cmp_ty(&t, &ty) {
+					return ReportKind::TypeError
+						.title("Type mismatch in assignment")
+						.label(format!("expected '{ty}', found '{t}'"))
+						.span(node.span)
+						.as_err();
+				}
+
+				let id = self.peek_scope_mut().new_id();
+				self.peek_scope_mut().locals.push((id, name.elem.to_string(), ty.clone()));
+
+				vec![Node::Assign {
+					id, ty, val: Box::new(n.unwrap_or(Node::Var(v))),
+				}]
+			},
 			_ => todo!(),
 		})
 	}
@@ -285,6 +313,18 @@ impl Analyzer {
 				}), Var::Glob(id))
 			},
 			ast::Node::UIntLit(v) => (Type::Puint, None, Var::Imm(v)),
+			ast::Node::SIntLit(v) => (Type::Pint,  None, Var::Imm(v)),
+			ast::Node::Ident(name) => {
+				let (depth, (id, _, ty)) = self.find_matching_descending(|(_, n, _)| n == name)
+					.ok_or_else(|| ReportKind::UndefinedSym
+						.title(format!("'{name}' is not defined"))
+						.span(node.span))?;
+
+				(ty, None, match depth {
+					0 => Var::Glob(id),
+					_ => Var::Local(id),
+				})
+			},
 			_ => todo!(),
 		})
 	}
@@ -311,14 +351,14 @@ fn convert_ast_ty(ty: &ast::Type) -> Type {
 	}
 }
 
-// linter doesnt detect ty2 being used cause its always in a matches!
-#[allow(unused_variables)]
 fn cmp_ty(ty1: &Type, ty2: &Type) -> bool {
-	match ty1 {
-		Type::Puint  => matches!(ty2, Type::Puint  | Type::U(_) | Type::Usize | Type::I(_) | Type::F(_)),
-		Type::Pint   => matches!(ty2, Type::Pint   | Type::I(_) | Type::Isize | Type::F(_)),
-		Type::Pbool  => matches!(ty2, Type::Pbool  | Type::B(_)),
-		Type::Pfloat => matches!(ty2, Type::Pfloat | Type::F(_)),
-		_ => matches!(ty1, ty2),
+	match (ty1, ty2) {
+		(Type::Puint, _)  => matches!(ty2, Type::Puint  | Type::U(_) | Type::Usize | Type::I(_) | Type::F(_)),
+		(Type::Pint, _)   => matches!(ty2, Type::Pint   | Type::I(_) | Type::Isize | Type::F(_)),
+		(Type::Pbool, _)  => matches!(ty2, Type::Pbool  | Type::B(_)),
+		(Type::Pfloat, _) => matches!(ty2, Type::Pfloat | Type::F(_)),
+		(Type::Arr(_, _), Type::Ptr(ty2)) => cmp_ty(ty1, ty2),
+		(Type::Arr(ty1, _), Type::Arr(ty2, None)) => cmp_ty(ty1, ty2),
+		_ => ty1 == ty2,
 	}
 }

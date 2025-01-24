@@ -22,6 +22,7 @@ pub enum Node<'src> {
 		name: Sp<&'src str>,
 		args: Vec<Sp<Node<'src>>>,
 	},
+	Ident(&'src str),
 	StrLit(String),
 	UIntLit(iBig),
 	SIntLit(iBig),
@@ -66,16 +67,16 @@ impl Display for Node<'_> {
 				}
 
 				writeln!(f, " {{")?;
-				body.iter().try_for_each(|s| writeln!(f, "   {s}"))?;
+				body.iter().try_for_each(|s| writeln!(f, "   {s};"))?;
 				write!(f, "}}")
 			},
 			Self::Assign { name, value, ty } => 
-				write!(f, "{} {name}: {} = {value};",
+				write!(f, "{} {name}: {} = {value}",
 					"let".yellow().dimmed(),
 					ty.to_string().blue()),
 			Self::Ret(expr) => match expr {
-				Some(expr) => write!(f, "ret {expr};"),
-				None => write!(f, "ret;"),
+				Some(expr) => write!(f, "{} {expr}", "ret".yellow().dimmed()),
+				None => write!(f, "{}", "ret".yellow().dimmed()),
 			},
 			Self::FuncCall { name, args } => {
 				write!(f, "{}(", format!("${name}").red())?;
@@ -87,6 +88,7 @@ impl Display for Node<'_> {
 			},
 			Self::StrLit(s)  => write!(f, "{}", format!("{s:?}").green()),
 			Self::UIntLit(i) | Self::SIntLit(i) => write!(f, "{}", i.to_string().cyan()),
+			Self::Ident(name) => write!(f, "{name}"),
 		}
 	}
 }

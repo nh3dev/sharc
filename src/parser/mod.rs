@@ -335,19 +335,22 @@ impl<'src> Parser<'src> {
 				Node::StrLit(new_text)
 			},
 			TokenKind::DecimalIntLiteral => {
-				let text = token.text;
 				self.advance();
-				Node::UIntLit(text.parse::<iBig>()
+				Node::UIntLit(token.text.parse::<iBig>()
 					.map_err(|_| ReportKind::InvalidNumber
 						.title("Invalid integer literal")
 						.span(token.span))?)
+			}, // TODO: other int literals + signed
+
+			// FIXME: naive impl
+			TokenKind::Identifier => {
+				self.advance();
+				Node::Ident(token.text)
 			},
-			// TODO: other int literals + signed
 
 			_ => return ReportKind::UnexpectedToken
 				.title("Expected expression")
 				.span(token.span).as_err(),
-			// _ => self.parse_expr()?,
 		};
 
 		// TODO:
