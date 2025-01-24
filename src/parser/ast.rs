@@ -1,5 +1,5 @@
 use std::fmt::{self, Display};
-use crate::span::{Span, Sp, Spannable};
+use crate::span::Sp;
 
 use colored::Colorize;
 

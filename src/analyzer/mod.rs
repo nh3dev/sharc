@@ -264,6 +264,7 @@ impl Analyzer {
 					},
 				});
 
+				self.pop_scope();
 				nodes
 			},
 			_ => todo!(),
@@ -310,6 +311,8 @@ fn convert_ast_ty(ty: &ast::Type) -> Type {
 	}
 }
 
+// linter doesnt detect ty2 being used cause its always in a matches!
+#[allow(unused_variables)]
 fn cmp_ty(ty1: &Type, ty2: &Type) -> bool {
 	match ty1 {
 		Type::Puint  => matches!(ty2, Type::Puint  | Type::U(_) | Type::Usize | Type::I(_) | Type::F(_)),
