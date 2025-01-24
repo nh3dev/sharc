@@ -1,6 +1,7 @@
 use crate::lexer::{Token, TokenKind};
 use crate::report::{LogHandler, ReportKind, Result};
 use crate::span::{Spannable, Sp};
+use crate::bigint::iBig;
 
 pub mod ast;
 use ast::{Node, Type, Attrs};
@@ -314,7 +315,7 @@ impl<'src> Parser<'src> {
 			TokenKind::DecimalIntLiteral => {
 				let text = token.text;
 				self.advance();
-				Node::UIntLit(text.parse::<u64>()
+				Node::UIntLit(text.parse::<iBig>()
 					.map_err(|_| ReportKind::InvalidNumber
 						.title("Invalid integer literal")
 						.span(token.span))?)

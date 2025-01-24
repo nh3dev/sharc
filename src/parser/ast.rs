@@ -1,5 +1,6 @@
 use std::fmt::{self, Display};
 use crate::span::Sp;
+use crate::bigint::iBig;
 
 use colored::Colorize;
 
@@ -22,7 +23,8 @@ pub enum Node<'src> {
 		args: Vec<Sp<Node<'src>>>,
 	},
 	StrLit(String),
-	UIntLit(u64),
+	UIntLit(iBig),
+	SIntLit(iBig),
 }
 
 pub enum Attrs {
@@ -84,7 +86,7 @@ impl Display for Node<'_> {
 				write!(f, ")")
 			},
 			Self::StrLit(s)  => write!(f, "{}", format!("{s:?}").green()),
-			Self::UIntLit(i) => write!(f, "{}", i.to_string().cyan()),
+			Self::UIntLit(i) | Self::SIntLit(i) => write!(f, "{}", i.to_string().cyan()),
 		}
 	}
 }
