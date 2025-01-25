@@ -4,7 +4,7 @@ use crate::bigint::iBig;
 
 #[derive(Clone, Copy, Default, Debug, Eq, Hash, PartialEq)]
 pub struct ValId(pub u64);
-impl std::ops::Deref for ValId {
+impl std::ops::Deref for ValId { // FIXME: prob not needed
 	type Target = u64;
 	fn deref(&self) -> &Self::Target 
 	{ &self.0 }
@@ -14,9 +14,9 @@ pub enum Node {
 	Func {
 		id:      ValId,
 		export:  bool, // TODO: perhaps remove, the id can be checked in the sym table
-		args:    Vec<(ValId, Type)>,
+		args:    Vec<(ValId, Type)>, // type cant be Void, Never
 		ret:     Type,
-		body:    Vec<Node>,
+		body:    Vec<Node>, // Assign | Global | Ret | FuncCall
 	},
 	FuncDecl {
 		id:   ValId,
@@ -25,7 +25,7 @@ pub enum Node {
 	},
 	Assign {
 		id:  ValId,
-		ty:  Type,
+		ty:  Type, // type cant be Void, Never
 		val: Box<Node>, // FuncCall | Var
 	},
 	Global {
@@ -38,8 +38,8 @@ pub enum Node {
 		id: Var, // Var::Local | Var::Glob
 		args: Vec<(Var, Type)>,
 	},
-	StrLit(String),
-	Var(Var),
+	StrLit(String), // ?!
+	Var(Var), // ?!
 }
 
 pub enum Var {
@@ -157,4 +157,9 @@ impl fmt::Display for Var {
 			Self::Glob(id)  => write!(f, "@{}", **id),
 		}
 	}
+}
+
+impl fmt::Display for ValId {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result 
+	{ write!(f, "{}", self.0) }
 }

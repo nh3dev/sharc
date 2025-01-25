@@ -7,10 +7,6 @@ use crate::parser::ast;
 pub mod mir;
 use mir::{Node, ValId, Var, Type};
 
-pub type Name = String;
-
-pub type AnalyzedOut = (Vec<Node>, HashMap<ValId, Name>);
-
 #[derive(Default)]
 pub struct Analyzer {
 	scope:   Vec<Scope>,
@@ -68,7 +64,7 @@ impl Analyzer {
 			scope.locals.iter().rev().find(|(i,n,t)| f((*i,n,t))).cloned().map(|v| (d, v)))
 	}
 
-	pub fn analyze(ast: Vec<Sp<ast::Node>>, file: &'static str, handler: &LogHandler) -> AnalyzedOut {
+	pub fn analyze(ast: Vec<Sp<ast::Node>>, file: &'static str, handler: &LogHandler) -> (Vec<Node>, HashMap<ValId, String>) {
 		let mut analyzer = Self {
 			scope: vec![Scope::default()],
 			symbols: HashMap::new(),

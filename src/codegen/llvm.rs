@@ -14,6 +14,7 @@ pub struct Module {
 
 pub enum DataAttr {
 	Internal,
+	Global,
 	Private,
 	UnnamedAddr,
 	Constant,
@@ -22,13 +23,12 @@ pub enum DataAttr {
 pub struct DataDef {
 	pub name:  Name,
 	pub attr:  Vec<DataAttr>,
-	pub value: Val,
+	pub value: TypedVal,
 	// TODO: align
 }
 
 
 pub enum FuncAttr {
-	Export,
 	Nounwind,
 	NoReturn,
 	NoInline,
@@ -54,10 +54,8 @@ pub struct FuncDecl {
 
 pub enum Instr {
 	Assign(Val, Box<Instr>),
-	// WARN:
-	// Don't use this?
-	Val(TypedVal),
-	Ret(Option<TypedVal>),
+	Val(Val), // NOTE: This is an invalid instr by itself
+	Ret(Option<Val>, Type),
 	Call {
 		func: TypedVal,
 		args: Vec<TypedVal>,
@@ -67,13 +65,6 @@ pub enum Instr {
 pub enum ValKind { Local, Global, Str, Const, }
 pub struct Val(pub ValKind, pub Name);
 pub struct TypedVal(pub Type, pub ValKind, pub Name);
-
-impl Val {
-    pub fn to_typed(self, t: Type) -> TypedVal {
-        let Val(k, n) = self;
-        TypedVal(t, k, n)
-    }
-}
 
 pub enum Type {
 	Int(u32),
@@ -91,6 +82,7 @@ impl Display for DataAttr {
 			Self::Private     => write!(f, "private "),
 			Self::UnnamedAddr => write!(f, "unnamed_addr "),
 			Self::Constant    => write!(f, "constant "),
+			Self::Global      => write!(f, "global "),
 		}
 	}
 }
@@ -98,7 +90,6 @@ impl Display for DataAttr {
 impl Display for FuncAttr {
 	fn fmt(&self, f: &mut Formatter) -> fmt::Result {
 		match self {
-			Self::Export   => write!(f, "export "),
 			Self::Nounwind => write!(f, "nounwind "),
 			Self::NoReturn => write!(f, "noreturn "),
 			Self::NoInline => write!(f, "noinline "),
@@ -113,7 +104,8 @@ impl Display for Module {
 		self.data .iter().try_for_each(|d| writeln!(f, "{d}"))?;
 		self.decls.iter().try_for_each(|c| writeln!(f, "{c}"))?;
 		self.funcs.iter().try_for_each(|c| writeln!(f, "{c}"))?;
-		writeln!(f, "!llvm.ident = !{{!\"sharc {}\"}}", env!("CARGO_PKG_VERSION"))
+		writeln!(f, "!llvm.ident = !{{!0}}")?;
+		writeln!(f, "!0 = !{{!\"sharc {}\"}}", env!("CARGO_PKG_VERSION"))
 	}
 }
 
@@ -162,8 +154,8 @@ impl Display for Instr {
 	fn fmt(&self, f: &mut Formatter) -> fmt::Result {
 		match self {
 			Self::Assign(v, i) => write!(f, "{v} = {i}"),
-			Self::Val(_) => todo!(),
-			Self::Ret(v) => write!(f, "ret {}", v.as_ref()
+			Self::Val(i) => write!(f, "{i}"),
+			Self::Ret(v, t) => write!(f, "ret {t} {}", v.as_ref()
 				.map_or(String::new(), ToString::to_string)),
 			Self::Call { func, args } => {
 				write!(f, "call {func}(")?;
@@ -179,11 +171,17 @@ impl Display for Instr {
 
 impl Display for Val {
 	fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-		match self.0 {
-			ValKind::Local | ValKind::Global | ValKind::Const => write!(f, "{}{}", self.0, self.1),
+		write!(f, "{}{}", self.0, self.1)
+	}
+}
+
+impl Display for TypedVal {
+	fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+		match self.1 {
+			ValKind::Local | ValKind::Global | ValKind::Const => write!(f, "{} {}{}", self.0, self.1, self.2),
 			ValKind::Str    => {
-				write!(f, "c\"")?;
-				self.1.chars().try_for_each(|c| match c {
+				write!(f, "{} c\"", self.0)?;
+				self.2.chars().try_for_each(|c| match c {
 					'\x00'..='\x1f' => write!(f, "\\{:02x}", c as u8),
 					_ => write!(f, "{c}"),
 				})?;
@@ -193,19 +191,13 @@ impl Display for Val {
 	}
 }
 
-impl Display for TypedVal {
-	fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-		write!(f, "{0} {1}{2}", self.0, self.1, self.2)
-	}
-}
-
 impl Display for ValKind {
 	fn fmt(&self, f: &mut Formatter) -> fmt::Result {
 		match self {
 			Self::Local   => write!(f, "%"),
-			Self::Global => write!(f, "@"),
-			Self::Str    => unreachable!(),
-			Self::Const  => Ok(()),
+			Self::Global  => write!(f, "@"),
+			Self::Str     => unreachable!(),
+			Self::Const   => Ok(()),
 		}
 	}
 }

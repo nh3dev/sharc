@@ -46,10 +46,10 @@ fn main() {
 
 
 	if args.debug { eprintln!("\n{}", "ANALYSIS".bold()); }
-	let (hir, sym) = analyzer::Analyzer::analyze(ast, args.file, &handler);
+	let (mir, sym) = analyzer::Analyzer::analyze(ast, args.file, &handler);
 	if args.debug {
 		sym.iter().map(|(k,v)| (k.0, v)).for_each(|(k,v)| eprintln!("{k}: \"{v}\""));
-		hir.iter().for_each(|n| eprintln!("{n:#}")); 
+		mir.iter().for_each(|n| eprintln!("{n:#}")); 
 	}
 
 	if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
@@ -57,18 +57,19 @@ fn main() {
 	}
 
 
-	// if args.debug { eprintln!("\n{}", "CODEGEN".bold()); }
-	// let code = codegen::Gen::codegen(args.file, ast, &handler);
-	// if args.debug { eprintln!("{code}"); }
-	//
-	// if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
-	// 	std::process::exit(1);
-	// }
+	if args.debug { eprintln!("\n{}", "CODEGEN".bold()); }
+	let code = codegen::Gen::codegen(args.file, sym, mir, &handler);
+	if args.debug { eprintln!("{code}"); }
 
-	// match args.output.is_empty() {
-	// 	true => println!("{code}"),
-	// 	false => std::fs::write(args.output, code.to_string()).unwrap(),
-	// }
+	if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
+		std::process::exit(1);
+	}
+
+	match args.output.is_empty() {
+		true => handler.log(report::ReportKind::IOError
+			.title("Output file not specified")),
+		false => std::fs::write(args.output, code.to_string()).unwrap(),
+	}
 
 	handler.terminate();
 }
