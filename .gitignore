@@ -2,5 +2,6 @@
 .vscode
 /target
 main.shd
+main.ll
 local
 a.out
