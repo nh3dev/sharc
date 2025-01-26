@@ -192,7 +192,10 @@ impl LogHandler {
 		Self { thread: Some(thread), tx }
 	}
 
+	#[track_caller]
 	pub fn log<T: Display>(&self, log: T) {
+		#[cfg(debug_assertions)]
+		eprintln!("ERRAT: {}", std::panic::Location::caller());
 		self.tx.send(Event::Log(Box::leak(log.to_string().into_boxed_str())))
 			.expect("Failed to send Log event");
 	}
