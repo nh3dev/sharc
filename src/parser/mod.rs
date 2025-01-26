@@ -257,6 +257,21 @@ impl<'src> Parser<'src> {
 					_ => Node::Ret(Some(Box::new(self.parse_expr()?))),
 				}.span(self.current().span)
 			},
+			TokenKind::Identifier => {
+				let tok = self.current();
+				self.advance();
+
+				match self.current().kind {
+					TokenKind::Equals => {
+						self.advance();
+						Node::Store {
+							name: tok.text.span(tok.span),
+							value: Box::new(self.parse_expr()?),
+						}.span(tok.span.extend(&self.current().span))
+					},
+					_ => todo!()
+				}
+			}
 
 			_ => self.parse_expr()?,
 		};
