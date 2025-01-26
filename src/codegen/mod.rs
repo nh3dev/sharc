@@ -87,7 +87,7 @@ impl Gen {
 					let Instr::Val(Val(kind, name)) = self.gen_stmt(*val)?.remove(0)
 						else { unreachable!() };
 
-					return Ok(vec![
+					return Ok(vec![ // cabb
 						Instr::Assign(Val(ValKind::Local, format!("t{}", *id)), Instr::Alloca(gen_type(&ty)?).into()),
 						Instr::Store(TypedVal(gen_type(&ty)?, kind, name), 
 							TypedVal(Type::Ptr, ValKind::Local, format!("t{}", *id))),
@@ -108,8 +108,8 @@ impl Gen {
 				return Ok(Vec::new());
 			},
 			Node::Ret(None, ty)    => Instr::Ret(None, gen_type(&ty)?), // realistically this is only ever void
-			Node::Ret(Some(v), ty) => Instr::Ret(Some(self.gen_val(&v)), gen_type(&ty)?),
-			Node::FuncCall { id, args } => self.gen_fncall(&id, args, Type::Void)?,
+			Node::Ret(Some(v), ty) => Instr::Ret(Some(self.gen_val(&v)), gen_type(&ty)?), // cabb
+			Node::FuncCall { id, args } => self.gen_fncall(&id, args, Type::Void)?, // cabb
 			Node::Var(v)    => Instr::Val(self.gen_val(&v)),
 			Node::StrLit(l) => Instr::Val(Val(ValKind::Str, l)),
 			_ => todo!(),
@@ -118,11 +118,11 @@ impl Gen {
 
 	fn gen_fncall(&self, var: &Var, args: Vec<(Var, mType)>, ret: Type) -> Result<Instr> {
 		Ok(Instr::Call {
-			func: {
+			func: { // cabb
 				let Val(kind, name) = self.gen_val(var);
 				TypedVal(ret, kind, name)
 			},
-			args: {
+			args: { // cabb
 				let mut nargs = Vec::new();
 				for (var, ty) in args {
 					let Val(kind, name) = self.gen_val(&var);
