@@ -69,6 +69,19 @@ pub enum ValKind { Local, Global, Str, Const, }
 pub struct Val(pub ValKind, pub Name);
 pub struct TypedVal(pub Type, pub ValKind, pub Name);
 
+impl Val {
+	pub fn typed(self, ty: Type) -> TypedVal {
+		TypedVal(ty, self.0, self.1)
+	}
+}
+
+impl TypedVal {
+	pub fn val(self) -> (Type, Val) {
+		(self.0, Val(self.1, self.2))
+	}
+}
+
+#[derive(Clone)]
 pub enum Type {
 	Int(u32),
 	F16, F32, F64, F128,

@@ -30,6 +30,12 @@ impl Gen {
 		cgen.module
 	}
 
+	fn inc_ucnt(&mut self) -> u64 {
+		let ucnt = self.ucnt;
+		self.ucnt += 1;
+		ucnt
+	}
+
 	fn get_id_name(&self, id: mir::ValId) -> &str {
 		self.sym.get(&id).expect("ValId not found in sym table")
 	}
@@ -80,57 +86,85 @@ impl Gen {
 	fn gen_stmt(&mut self, node: Node) -> Result<Vec<Instr>> {
 		Ok(vec![match node {
 			// FIXME: Very questionable cabbaging.
-			Node::Assign { id, ty, val } => match *val {
+			Node::Assign { id, ty, val } => return match *val {
 				Node::FuncCall { id, args } =>
-					self.gen_fncall(&id, args, gen_type(&ty)?)?,
+					self.gen_fncall(&id, args, gen_type(&ty)?),
 				_ => {
 					let Instr::Val(Val(kind, name)) = self.gen_stmt(*val)?.remove(0)
 						else { unreachable!() };
 
-					return Ok(vec![
+					Ok(vec![
 						Instr::Assign(Val(ValKind::Local, format!("t{}", *id)), Instr::Alloca(gen_type(&ty)?).into()),
 						Instr::Store(TypedVal(gen_type(&ty)?, kind, name), 
 							TypedVal(Type::Ptr, ValKind::Local, format!("t{}", *id))),
-					]);
+					])
 				},
 			},
 			Node::Global { id, ty, val } => {
-				let Instr::Val(Val(kind, name)) = self.gen_stmt(*val)?.remove(0)
+				let Instr::Val(val) = self.gen_stmt(*val)?.remove(0)
 					else { unreachable!() };
 
 				let data = llvm::DataDef {
-					value: TypedVal(gen_type(&ty)?, kind, name),
-					name: format!("g{}", *id),
-					attr: vec![DataAttr::Internal, DataAttr::Global], // TODO: global var attrs
+					value: val.typed(gen_type(&ty)?),
+					name:  format!("g{}", *id),
+					attr:  vec![DataAttr::Internal, DataAttr::Global], // TODO: global var attrs
 				};
 
 				self.module.data.push(data);
 				return Ok(Vec::new());
 			},
 			Node::Ret(None, ty)    => Instr::Ret(None, gen_type(&ty)?), // realistically this is only ever void
-			Node::Ret(Some(v), ty) => Instr::Ret(Some(self.gen_val(&v)), gen_type(&ty)?),
-			Node::FuncCall { id, args } => self.gen_fncall(&id, args, Type::Void)?,
+			Node::Ret(Some(v), ty) => {
+				let (instr, tyval) = self.use_val(self.gen_val(&v).typed(gen_type(&ty)?));
+				let mut instrs = instr.map_or(Vec::new(), |i| vec![i]);
+
+				let (ty, val) = tyval.val();
+				instrs.push(Instr::Ret(Some(val), ty));
+
+				return Ok(instrs);
+			},
+			Node::FuncCall { id, args } => return self.gen_fncall(&id, args, Type::Void),
 			Node::Var(v)    => Instr::Val(self.gen_val(&v)),
 			Node::StrLit(l) => Instr::Val(Val(ValKind::Str, l)),
 			_ => todo!(),
 		}])
 	}
 
-	fn gen_fncall(&self, var: &Var, args: Vec<(Var, mType)>, ret: Type) -> Result<Instr> {
-		Ok(Instr::Call {
+	fn gen_fncall(&mut self, var: &Var, args: Vec<(Var, mType)>, ret: Type) -> Result<Vec<Instr>> {
+		let mut instrs = Vec::new();
+
+		let instr = Instr::Call {
 			func: {
-				let Val(kind, name) = self.gen_val(var);
-				TypedVal(ret, kind, name)
+				let (instr, tyval) = self.use_val(self.gen_val(var).typed(ret));
+				instr.map(|i| instrs.push(i));
+				tyval
 			},
 			args: {
 				let mut nargs = Vec::new();
 				for (var, ty) in args {
-					let Val(kind, name) = self.gen_val(&var);
-					nargs.push(TypedVal(gen_type(&ty)?, kind, name));
+					let (instr, tyval) = self.use_val(self.gen_val(&var).typed(gen_type(&ty)?));
+					instr.map(|i| instrs.push(i));
+					nargs.push(tyval);
 				}
 				nargs
 			},
-		})
+		};
+		instrs.push(instr);
+		Ok(instrs)
+	}
+
+	// TODO: maybe not always a ptr
+	fn use_val(&mut self, val: TypedVal) -> (Option<Instr>, TypedVal) {
+		match val {
+			TypedVal(ty, ValKind::Local, name) => {
+				let nname = format!("{}_{}", name, self.inc_ucnt());
+
+				(Some(Instr::Assign(Val(ValKind::Local, nname.clone()), 
+					Instr::Load(ty.clone(), TypedVal(Type::Ptr, ValKind::Local, name)).into())),
+					TypedVal(ty, ValKind::Local, nname))
+			},
+			_ => (None, val),
+		}
 	}
 
 	fn gen_val(&self, v: &mir::Var) -> Val {
