@@ -17,6 +17,10 @@ pub enum Node<'src> {
 		ty: Sp<Type<'src>>,
 		value: Box<Sp<Node<'src>>>
 	},
+	Store {
+		name: Sp<&'src str>,
+		value: Box<Sp<Node<'src>>>
+	},
 	Ret(Option<Box<Sp<Node<'src>>>>),
 	FuncCall {
 		name: Sp<&'src str>,
@@ -74,6 +78,8 @@ impl Display for Node<'_> {
 				write!(f, "{} {name}: {} = {value}",
 					"let".yellow().dimmed(),
 					ty.to_string().blue()),
+			Self::Store { name, value } =>
+				write!(f, "{name} = {value}"),
 			Self::Ret(expr) => match expr {
 				Some(expr) => write!(f, "{} {expr}", "ret".yellow().dimmed()),
 				None => write!(f, "{}", "ret".yellow().dimmed()),
