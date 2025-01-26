@@ -4,11 +4,12 @@ use crate::report::{Result, LogHandler, ReportKind};
 use crate::analyzer::mir::{self, ValId, Var, Node, Type as mType};
 
 mod llvm;
-use llvm::{Instr, Val, TypedVal, ValKind, Module, DataDef, DataAttr, FuncAttr, Type};
+use llvm::{Instr, Val, TypedVal, ValKind, Module, DataAttr, Type};
 
 pub struct Gen {
 	module: Module,
 	sym:    HashMap<ValId, String>,
+	ucnt:   u64,
 }
 
 impl Gen {
@@ -17,7 +18,7 @@ impl Gen {
 		mir: Vec<Node>, handler: &LogHandler) 
 	-> Module {
 		let mut cgen = Self {
-			sym,
+			sym, ucnt: 0,
 			module: Module::default(),
 		};
 
@@ -40,7 +41,7 @@ impl Gen {
 					attr: Vec::new(),
 					name: match export {
 						true  => self.get_id_name(id).to_string(),
-						false => format!("__glb{}", *id),
+						false => format!("g{}", *id),
 					},
 					args: {
 						let mut nargs = Vec::new();
@@ -49,9 +50,14 @@ impl Gen {
 						}
 						nargs
 					},
-					ret:  gen_type(&ret)?,
-					body: body.into_iter().filter_map(|stmt| self.gen_stmt(stmt).transpose())
-						.collect::<Result<Vec<_>>>()?,
+					ret: gen_type(&ret)?,
+					body: {
+						let mut nbody = Vec::new();
+						for stmt in body {
+							nbody.extend(self.gen_stmt(stmt)?);
+						}
+						nbody
+					},
 				};
 
 				self.module.funcs.push(func);
@@ -71,25 +77,35 @@ impl Gen {
 		Ok(())
 	}
 
-	fn gen_stmt(&mut self, node: Node) -> Result<Option<Instr>> {
-		Ok(Some(match node {
+	fn gen_stmt(&mut self, node: Node) -> Result<Vec<Instr>> {
+		Ok(vec![match node {
 			// FIXME: Very questionable cabbaging.
-			Node::Assign { id, ty, val } => Instr::Assign(Val(ValKind::Local, format!("__tmp{}", *id)), match *val {
-				Node::FuncCall { id, args } => self.gen_fncall(&id, args, gen_type(&ty)?)?.into(),
-				_ => self.gen_stmt(*val)?.expect("pretty sure SA guarantees this").into(),
-			}),
+			Node::Assign { id, ty, val } => match *val {
+				Node::FuncCall { id, args } =>
+					self.gen_fncall(&id, args, gen_type(&ty)?)?,
+				_ => {
+					let Instr::Val(Val(kind, name)) = self.gen_stmt(*val)?.remove(0)
+						else { unreachable!() };
+
+					return Ok(vec![
+						Instr::Assign(Val(ValKind::Local, format!("t{}", *id)), Instr::Alloca(gen_type(&ty)?).into()),
+						Instr::Store(TypedVal(gen_type(&ty)?, kind, name), 
+							TypedVal(Type::Ptr, ValKind::Local, format!("t{}", *id))),
+					]);
+				},
+			},
 			Node::Global { id, ty, val } => {
-				let Some(Instr::Val(Val(kind, name))) = self.gen_stmt(*val)?
+				let Instr::Val(Val(kind, name)) = self.gen_stmt(*val)?.remove(0)
 					else { unreachable!() };
 
 				let data = llvm::DataDef {
 					value: TypedVal(gen_type(&ty)?, kind, name),
-					name: format!("__glb{}", *id),
+					name: format!("g{}", *id),
 					attr: vec![DataAttr::Internal, DataAttr::Global], // TODO: global var attrs
 				};
 
 				self.module.data.push(data);
-				return Ok(None);
+				return Ok(Vec::new());
 			},
 			Node::Ret(None, ty)    => Instr::Ret(None, gen_type(&ty)?), // realistically this is only ever void
 			Node::Ret(Some(v), ty) => Instr::Ret(Some(self.gen_val(&v)), gen_type(&ty)?),
@@ -97,7 +113,7 @@ impl Gen {
 			Node::Var(v)    => Instr::Val(self.gen_val(&v)),
 			Node::StrLit(l) => Instr::Val(Val(ValKind::Str, l)),
 			_ => todo!(),
-		}))
+		}])
 	}
 
 	fn gen_fncall(&self, var: &Var, args: Vec<(Var, mType)>, ret: Type) -> Result<Instr> {
@@ -120,10 +136,10 @@ impl Gen {
 	fn gen_val(&self, v: &mir::Var) -> Val {
 		match v {
 			Var::Imm(v)    => Val(ValKind::Const, v.to_string()),
-			Var::Local(id) => Val(ValKind::Local, format!("__tmp{id}")),
+			Var::Local(id) => Val(ValKind::Local, format!("t{id}")),
 			Var::Glob(id) if self.sym.contains_key(id) 
 				=> Val(ValKind::Global, self.get_id_name(*id).to_string()),
-			Var::Glob(id)  => Val(ValKind::Global, format!("__glb{}", *id)),
+			Var::Glob(id)  => Val(ValKind::Global, format!("g{}", *id)),
 		}
 	}
 }
@@ -144,8 +160,9 @@ fn gen_type(ty: &mType) -> Result<Type> {
 		mType::Void | mType::Never => Type::Void,
 
 		mType::Opt(ty) | mType::Mut(ty) => return gen_type(ty),
-		mType::Ptr(_)    => Type::Ptr,
-		mType::Arr(t, Some(n)) => Type::Array(usize::try_from(*n).unwrap(), Box::new(gen_type(t)?)),
+		mType::Ptr(_) => Type::Ptr,
+		#[allow(clippy::cast_possible_truncation)]
+		mType::Arr(t, Some(n)) => Type::Array(*n as usize, Box::new(gen_type(t)?)),
 		mType::Arr(_, _) => panic!("Stack arrays are not yet supported. Heap allocate instead."),
 		_ => unreachable!()
 	})

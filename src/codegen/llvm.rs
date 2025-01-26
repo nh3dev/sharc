@@ -60,6 +60,9 @@ pub enum Instr {
 		func: TypedVal,
 		args: Vec<TypedVal>,
 	},
+	Alloca(Type),
+	Store(TypedVal, TypedVal),
+	Load(Type, TypedVal),
 }
 
 pub enum ValKind { Local, Global, Str, Const, }
@@ -130,7 +133,7 @@ impl Display for Function {
 		self.attr.iter().try_for_each(|a| write!(f, " {a}"))?;
 		writeln!(f, "{{")?;
 
-		self.body.iter().try_for_each(|i| writeln!(f, "\t{i}"))?;
+		self.body.iter().try_for_each(|i| writeln!(f, "   {i}"))?;
 		writeln!(f, "}}")
 	}
 }
@@ -165,6 +168,9 @@ impl Display for Instr {
 				}
 				write!(f, ")")
 			},
+			Self::Alloca(t)   => write!(f, "alloca {t}"),
+			Self::Store(a, b) => write!(f, "store {a}, {b}"),
+			Self::Load(t, v)  => write!(f, "load {t}, {v}"),
 		}
 	}
 }

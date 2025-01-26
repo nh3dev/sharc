@@ -1,25 +1,25 @@
 #[derive(Debug)]
-pub struct iBig(bool, Vec<u64>);
+pub struct IBig(bool, Vec<u64>);
 
-impl From<u64> for iBig {
+impl From<u64> for IBig {
 	fn from(i: u64) -> Self {
 		Self(false, vec![i])
 	}
 }
 
-impl From<i64> for iBig {
+impl From<i64> for IBig {
 	fn from(i: i64) -> Self {
 		Self(i < 0, vec![i.unsigned_abs()])
 	}
 }
 
-impl std::ops::Neg for iBig {
+impl std::ops::Neg for IBig {
 	type Output = Self;
 	fn neg(self) -> Self::Output 
 	{ Self(!self.0, self.1) }
 }
 
-impl std::str::FromStr for iBig {
+impl std::str::FromStr for IBig {
 	type Err = std::num::ParseIntError;
 
 	// NOTE: naive impl assuming input is unsigned, use '-' to negate
@@ -38,7 +38,7 @@ impl std::str::FromStr for iBig {
 	}
 }
 
-impl std::fmt::Display for iBig {
+impl std::fmt::Display for IBig {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		if self.0 { write!(f, "-")?; }
 		self.1.iter().rev().try_for_each(|i| write!(f, "{i}"))

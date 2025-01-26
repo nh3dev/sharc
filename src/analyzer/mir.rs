@@ -1,6 +1,6 @@
 use std::fmt;
 use colored::Colorize;
-use crate::bigint::iBig;
+use crate::bigint::IBig;
 
 #[derive(Clone, Copy, Default, Debug, Eq, Hash, PartialEq)]
 pub struct ValId(pub u64);
@@ -43,7 +43,7 @@ pub enum Node {
 }
 
 pub enum Var {
-	Imm(iBig),
+	Imm(IBig),
 	Local(ValId),
 	Glob(ValId),
 }

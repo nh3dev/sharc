@@ -1,6 +1,6 @@
 use std::fmt::{self, Display};
 use crate::span::Sp;
-use crate::bigint::iBig;
+use crate::bigint::IBig;
 
 use colored::Colorize;
 
@@ -24,8 +24,8 @@ pub enum Node<'src> {
 	},
 	Ident(&'src str),
 	StrLit(String),
-	UIntLit(iBig),
-	SIntLit(iBig),
+	UIntLit(IBig),
+	SIntLit(IBig),
 }
 
 pub enum Attrs {
