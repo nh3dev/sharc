@@ -33,6 +33,11 @@ pub enum Node {
 		ty:  Type,
 		val: Box<Node>, // StrLit | Var::Imm | Var::Glob
 	},
+	// TODO: actually use this lol, @newguy do stores pls
+	Store { // TODO: maybe make work with other types than ptr
+		to:   Var, // Var::Local | Var::Glob
+		from: (Var, Type), // Var::Local | Var::Glob | Var::Imm
+	},
 	Ret(Option<Var>, Type),
 	FuncCall {
 		id: Var, // Var::Local | Var::Glob
@@ -99,6 +104,8 @@ impl fmt::Display for Node {
 				write!(f, ") {ret}")
 			},
 			Self::Assign { id, ty, val } => write!(f, "%{}: {ty} = {val}", **id),
+			Self::Store { to, from: (from, ty) } 
+				=> write!(f, "store {ty} {from}, {} {to}", "ptr".yellow().dimmed()),
 			Self::Global { id, ty, val } => write!(f, "@{}: {ty} = {val}", **id),
 			Self::Ret(Some(v), ty) => write!(f, "ret {v}: {ty}"),
 			Self::Ret(None, ty) => write!(f, "ret {ty}"),
