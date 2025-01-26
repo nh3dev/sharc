@@ -53,7 +53,7 @@ pub enum Var {
 	Glob(ValId),
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Type {
 	U(u32), I(u32), B(u32), F(u32),
 	Usize, Isize,

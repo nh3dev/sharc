@@ -13,7 +13,7 @@ pub struct Analyzer {
 	symbols: HashMap<ValId, String>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct Scope {
 	idacc:  ValId,
 	locals: Vec<(ValId, String, Type)>, 
@@ -175,14 +175,16 @@ impl Analyzer {
 
 					if !cmp_ty(&t, &ret) {
 						return ReportKind::TypeError
-							.title("Type mismatch in function call")
-							//.span(span)
+							.title("Return type mismatch")
+							// .label(format!("expected '{ret}', found '{t}'"))
+							// .span(node.span) // TODO: span
 							.as_err();
 					}
 
 					*t = ret.clone();
 				}
 
+				self.pop_scope();
 				Node::Func {
 					id, ret, 
 					body:   nodes,
@@ -265,7 +267,6 @@ impl Analyzer {
 					},
 				});
 
-				self.pop_scope();
 				nodes
 			},
 			ast::Node::Assign { name, ty, value } => {
