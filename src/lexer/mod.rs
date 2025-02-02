@@ -27,8 +27,11 @@ impl<'src> Lexer<'src> {
 	}
 
 	fn peek(&mut self) -> Option<&'src str> {
-		self.iter.peek().map(|i| &self.contents[*i..
-		*i + self.contents[*i..].char_indices().nth(1).map_or(self.contents.len(), |(i, _)| i)])
+		self.iter.peek().and_then(|i| 
+			self.contents.get(*i..*i + match self.contents.get(*i..) {
+					Some(s) => s.char_indices().nth(1).map_or(self.contents.len(), |(i, _)| i),
+					None => return None,
+				}))
 	}
 
 	fn push_token(&mut self, kind: TokenKind, start: usize, end: usize) {
@@ -107,11 +110,9 @@ impl<'src> Lexer<'src> {
 					let ident = lex.slice(index, lex.index + 1);
 					let kind = match ident {
 						"let"    => TokenKind::KWLet,
-						"fn"     => TokenKind::KWFn,
+						"static" => TokenKind::KWStatic,
 						"export" => TokenKind::KWExport,
 						"ret"    => TokenKind::KWRet,
-						"struct" => TokenKind::KWStruct,
-						"enum"   => TokenKind::KWEnum,
 						"impl"   => TokenKind::KWImpl,
 						"type"   => TokenKind::KWType,
 						"extern" => TokenKind::KWExtern,
@@ -249,11 +250,11 @@ impl<'src> Lexer<'src> {
 					let (token, len) = match s {
 						"." => (TokenKind::Dot, 1),
 						"'" => (TokenKind::Apostrophe, 1),
-						"~" => match lex.peek() {
+						"!" => match lex.peek() {
 							Some("=") => (TokenKind::NotEquals, 2),
-							_ => (TokenKind::Tilde, 1),
+							_ => (TokenKind::Bang, 1),
 						},
-						"!" => (TokenKind::Bang, 1),
+						"~" => (TokenKind::Tilde, 1),
 						"@" => (TokenKind::At, 1),
 						"#" => (TokenKind::Pound, 1),
 						"$" => (TokenKind::Dollar, 1),
@@ -271,14 +272,10 @@ impl<'src> Lexer<'src> {
 						")" => (TokenKind::RParen, 1),
 						"-" => match lex.peek() {
 							Some(">") => (TokenKind::ArrowRight, 2),
-							Some("-") => (TokenKind::MinusMinus, 2),
 							_ => (TokenKind::Minus, 1),
 						},
 						"_" => (TokenKind::Underscore, 1),
-						"+" => match lex.peek() {
-							Some("+") => (TokenKind::PlusPlus, 2),
-							_ => (TokenKind::Plus, 1),
-						},
+						"+" => (TokenKind::Plus, 1),
 						"[" => (TokenKind::LBracket, 1),
 						"]" => (TokenKind::RBracket, 1),
 						"{" => (TokenKind::LBrace, 1),
@@ -291,7 +288,7 @@ impl<'src> Lexer<'src> {
 						":" => (TokenKind::Colon, 1),
 						"," => (TokenKind::Comma, 1),
 						"=" => match lex.peek() {
-							// Some("=") => (TokenKind::EqualsEquals, 2),
+							Some("=") => (TokenKind::EqualsEquals, 2),
 							Some(">") => (TokenKind::FatArrowRight, 2),
 							_ => (TokenKind::Equals, 1),
 						},

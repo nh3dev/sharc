@@ -38,7 +38,7 @@ impl Span {
 }
 
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Sp<T> {
 	pub span: Span,
 	pub elem: T,

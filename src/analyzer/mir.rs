@@ -12,11 +12,11 @@ impl std::ops::Deref for ValId { // FIXME: prob not needed
 
 pub enum Node {
 	Func {
-		id:      ValId,
-		export:  bool, // TODO: perhaps remove, the id can be checked in the sym table
-		args:    Vec<(ValId, Type)>, // type cant be Void, Never
-		ret:     Type,
-		body:    Vec<Node>, // Assign | Global | Ret | FuncCall
+		id:     ValId,
+		export: bool,
+		args:   Vec<(ValId, Type)>, // !Void | !Never
+		ret:    Type,
+		body:   Vec<Node>, // Assign | Global | Ret | FuncCall
 	},
 	FuncDecl {
 		id:   ValId,
@@ -25,22 +25,21 @@ pub enum Node {
 	},
 	Assign {
 		id:  ValId,
-		ty:  Type, // type cant be Void, Never
+		ty:  Type, // !Void | !Never
 		val: Box<Node>, // FuncCall | Var
 	},
 	Global {
 		id:  ValId,
-		ty:  Type,
+		ty:  Type, // !Void | !Never
 		val: Box<Node>, // StrLit | Var::Imm | Var::Glob
 	},
-	// TODO: actually use this lol, @newguy do stores pls
 	Store { // TODO: maybe make work with other types than ptr
-		to:   Var, // Var::Local | Var::Glob
-		from: (Var, Type), // Var::Local | Var::Glob | Var::Imm
+		to:   Var, // Local | Glob
+		from: (Var, Type), // Local | Glob | Imm && !Void | !Never
 	},
 	Ret(Option<Var>, Type),
 	FuncCall {
-		id: Var, // Var::Local | Var::Glob
+		id:   Var, // Var::Local | Var::Glob
 		args: Vec<(Var, Type)>,
 	},
 	StrLit(String), // ?!
@@ -48,7 +47,7 @@ pub enum Node {
 }
 
 pub enum Var {
-	Imm(IBig),
+	Imm(Box<IBig>),
 	Local(ValId),
 	Glob(ValId),
 }
@@ -104,8 +103,7 @@ impl fmt::Display for Node {
 				write!(f, ") {ret}")
 			},
 			Self::Assign { id, ty, val } => write!(f, "%{}: {ty} = {val}", **id),
-			Self::Store { to, from: (from, ty) } 
-				=> write!(f, "store {ty} {from}, {} {to}", "ptr".yellow().dimmed()),
+			Self::Store { to, from: (from, ty) } => write!(f, "{to} <- {from}: {ty}"),
 			Self::Global { id, ty, val } => write!(f, "@{}: {ty} = {val}", **id),
 			Self::Ret(Some(v), ty) => write!(f, "ret {v}: {ty}"),
 			Self::Ret(None, ty) => write!(f, "ret {ty}"),
@@ -140,7 +138,7 @@ impl fmt::Display for Type {
 			Self::Never   => String::from("never"),
 			Self::Ptr(ty) => format!("*{ty}"),
 			Self::Arr(ty, None) => format!("[{ty}]"),
-			Self::Arr(ty, Some(n)) => format!("[{ty}; {n}]"),
+			Self::Arr(ty, Some(n)) => format!("[{ty} {n}]"),
 			Self::Mut(ty) => format!("mut {ty}"),
 			Self::Opt(ty) => format!("opt {ty}"),
 			Self::Fn(args, ret) => {

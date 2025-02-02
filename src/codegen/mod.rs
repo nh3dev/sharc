@@ -126,6 +126,17 @@ impl Gen {
 			Node::FuncCall { id, args } => return self.gen_fncall(&id, args, Type::Void),
 			Node::Var(v)    => Instr::Val(self.gen_val(&v)),
 			Node::StrLit(l) => Instr::Val(Val(ValKind::Str, l)),
+			Node::Store { to, from: (val, ty) } => {
+				let Val(tkind, tname) = self.gen_val(&to);
+
+				let ty = gen_type(&ty)?;
+				let tty = match tkind {
+					ValKind::Local => Type::Ptr,
+					_ => ty.clone(),
+				};
+
+				Instr::Store(self.gen_val(&val).typed(ty), TypedVal(tty, tkind, tname))
+			},
 			_ => todo!(),
 		}])
 	}

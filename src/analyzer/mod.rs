@@ -170,7 +170,7 @@ impl Analyzer {
 				}
 
 				for node in nodes.iter_mut().filter(|n| matches!(n, Node::Ret(_, _))) {
-					let Node::Ret(_, ref mut t) = node 
+					let &mut Node::Ret(_, ref mut t) = node 
 						else { unreachable!() };
 
 					if !cmp_ty(&t, &ret) {
@@ -296,6 +296,49 @@ impl Analyzer {
 					id, ty, val: Box::new(n.unwrap_or(Node::Var(v))),
 				}]
 			},
+			ast::Node::Store { name, value } => {
+				let (t, n, v) = self.analyze_expr(*value)?;
+
+				let (depth, (id, _, ty)) = self.find_matching_descending(|(_, n, _)| n == name.elem)
+					.ok_or_else(|| ReportKind::UndefinedSym
+						.title(format!("'{}' is not defined", *name))
+						.span(name.span))?;
+
+				if !cmp_ty(&t, &ty) {
+					return ReportKind::TypeError
+						.title("Type mismatch in store")
+						.label(format!("expected '{ty}', found '{t}'"))
+						.span(node.span)
+						.as_err();
+				}
+
+				if !matches!(ty, Type::Mut(_)) {
+					return ReportKind::TypeError
+						.title("Cannot store to immutable variable")
+						.help(format!("change the type to 'mut {ty}'"))
+						.span(node.span)
+						.as_err();
+				}
+
+				let mut nodes = Vec::new();
+
+				if !matches!(n, Some(Node::Var(_)) | None) {
+					let id = self.peek_scope_mut().new_id();
+					self.peek_scope_mut().locals.push((id, name.elem.to_string(), t.clone()));
+
+					nodes.push(Node::Assign {
+						id, ty: t, val: Box::new(n.unwrap()),
+					});
+				}
+
+				let id = match depth {
+					0 => Var::Glob(id),
+					_ => Var::Local(id),
+				};
+
+				nodes.push(Node::Store { to: id, from: (v, ty) });
+				nodes
+			},
 			_ => todo!(),
 		})
 	}
@@ -313,8 +356,7 @@ impl Analyzer {
 					val: Node::StrLit(s).into(),
 				}), Var::Glob(id))
 			},
-			ast::Node::UIntLit(v) => (Type::Puint, None, Var::Imm(v)),
-			ast::Node::SIntLit(v) => (Type::Pint,  None, Var::Imm(v)),
+			ast::Node::IntLit(v) => (Type::Puint, None, Var::Imm(v.into())),
 			ast::Node::Ident(name) => {
 				let (depth, (id, _, ty)) = self.find_matching_descending(|(_, n, _)| n == name)
 					.ok_or_else(|| ReportKind::UndefinedSym
@@ -352,8 +394,12 @@ fn convert_ast_ty(ty: &ast::Type) -> Type {
 	}
 }
 
+// allow cause we check mut before placeholder types
+#[allow(clippy::match_same_arms)]
 fn cmp_ty(ty1: &Type, ty2: &Type) -> bool {
 	match (ty1, ty2) {
+		(_, Type::Mut(ty2) | Type::Opt(ty2)) => cmp_ty(ty1, ty2),
+		(Type::Mut(ty1) | Type::Opt(ty1), _) => cmp_ty(ty1, ty2),
 		(Type::Puint, _)  => matches!(ty2, Type::Puint  | Type::U(_) | Type::Usize | Type::I(_) | Type::F(_)),
 		(Type::Pint, _)   => matches!(ty2, Type::Pint   | Type::I(_) | Type::Isize | Type::F(_)),
 		(Type::Pbool, _)  => matches!(ty2, Type::Pbool  | Type::B(_)),

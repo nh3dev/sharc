@@ -6,6 +6,8 @@
 	clippy::cognitive_complexity,clippy::option_if_let_else,clippy::option_map_unit_fn,
 	clippy::similar_names)]
 
+#![feature(if_let_guard)]
+
 use std::sync::atomic::Ordering;
 
 use colored::Colorize;
@@ -13,8 +15,8 @@ use colored::Colorize;
 mod args;
 mod lexer;
 mod parser;
-mod analyzer;
-mod codegen;
+// mod analyzer;
+// mod codegen;
 mod report;
 mod bigint;
 mod fs;
@@ -45,31 +47,31 @@ fn main() {
 	}
 
 
-	if args.debug { eprintln!("\n{}", "ANALYSIS".bold()); }
-	let (mir, sym) = analyzer::Analyzer::analyze(ast, args.file, &handler);
-	if args.debug {
-		sym.iter().map(|(k,v)| (k.0, v)).for_each(|(k,v)| eprintln!("{k}: \"{v}\""));
-		mir.iter().for_each(|n| eprintln!("{n:#}")); 
-	}
+	// if args.debug { eprintln!("\n{}", "ANALYSIS".bold()); }
+	// let (mir, sym) = analyzer::Analyzer::analyze(ast, args.file, &handler);
+	// if args.debug {
+	// 	sym.iter().map(|(k,v)| (k.0, v)).for_each(|(k,v)| eprintln!("{k}: \"{v}\""));
+	// 	mir.iter().for_each(|n| eprintln!("{n:#}")); 
+	// }
+	//
+	// if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
+	// 	std::process::exit(1);
+	// }
 
-	if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
-		std::process::exit(1);
-	}
 
-
-	if args.debug { eprintln!("\n{}", "CODEGEN".bold()); }
-	let code = codegen::Gen::codegen(args.file, sym, mir, &handler);
-	if args.debug { eprintln!("{code}"); }
-
-	if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
-		std::process::exit(1);
-	}
-
-	match args.output.is_empty() {
-		true => handler.log(report::ReportKind::IOError
-			.title("Output file not specified")),
-		false => std::fs::write(args.output, code.to_string()).unwrap(),
-	}
+	// if args.debug { eprintln!("\n{}", "CODEGEN".bold()); }
+	// let code = codegen::Gen::codegen(args.file, sym, mir, &handler);
+	// if args.debug { eprintln!("{code}"); }
+	//
+	// if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
+	// 	std::process::exit(1);
+	// }
+	//
+	// match args.output.is_empty() {
+	// 	true => handler.log(report::ReportKind::IOError
+	// 		.title("Output file not specified")),
+	// 	false => std::fs::write(args.output, code.to_string()).unwrap(),
+	// }
 
 	handler.terminate();
 }

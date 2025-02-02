@@ -4,41 +4,53 @@ use crate::bigint::IBig;
 
 use colored::Colorize;
 
+#[derive(Debug)]
 pub enum Node<'src> {
-	Func {
-		name:   Sp<&'src str>,
-		attrs:  Vec<Sp<Attrs>>,
-		args:   Vec<(Sp<&'src str>, Sp<Type<'src>>)>,
-		ret:    Option<Sp<Type<'src>>>,
-		body:   Vec<Sp<Node<'src>>>
-	},
 	Assign {
-		name: Sp<&'src str>,
-		ty: Sp<Type<'src>>,
-		value: Box<Sp<Node<'src>>>
+		name:  Sp<&'src str>,
+		ty:    Option<Sp<Type<'src>>>,
+		expr: Box<Sp<Node<'src>>>,
+		stat:  bool,
 	},
-	Store {
-		name: Sp<&'src str>,
-		value: Box<Sp<Node<'src>>>
-	},
-	Ret(Option<Box<Sp<Node<'src>>>>),
-	FuncCall {
-		name: Sp<&'src str>,
-		args: Vec<Sp<Node<'src>>>,
-	},
+
 	Ident(&'src str),
 	StrLit(String),
-	UIntLit(IBig),
-	SIntLit(IBig),
+	IntLit(IBig),
+	ArrayLit(Vec<Sp<Node<'src>>>),
+
+	FuncCall {
+		lhs:  Box<Sp<Node<'src>>>,
+		args: Vec<Sp<Node<'src>>>,
+	},
+	Lambda {
+		args: Vec<(Sp<&'src str>, Option<Sp<Type<'src>>>)>,
+		ret:  Option<Sp<Type<'src>>>,
+		body: Vec<Sp<Node<'src>>>,
+	},
+
+	// UNARY EXPR
+	Neg(Box<Sp<Node<'src>>>),
+	Ret(Option<Box<Sp<Node<'src>>>>),
+	ImplRet(Box<Sp<Node<'src>>>),
+
+	// BINARY EXPR
+	Sub(Box<Sp<Node<'src>>>,   Box<Sp<Node<'src>>>),
+	Add(Box<Sp<Node<'src>>>,   Box<Sp<Node<'src>>>),
+	Mul(Box<Sp<Node<'src>>>,   Box<Sp<Node<'src>>>),
+	Div(Box<Sp<Node<'src>>>,   Box<Sp<Node<'src>>>),
+	Mod(Box<Sp<Node<'src>>>,   Box<Sp<Node<'src>>>),
+	Store(Box<Sp<Node<'src>>>, Box<Sp<Node<'src>>>),
 }
 
+// TODO: prob throw out
+#[derive(Debug)]
 pub enum Attrs {
 	Export,
 	Extern,
 	Pub,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum Type<'src> {
 	U(u32), I(u32), B(u32), F(u32),
 	Usize, Isize,
@@ -54,15 +66,18 @@ pub enum Type<'src> {
 impl Display for Node<'_> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
-			Self::Func { name, attrs, args, ret, body } => {
-				attrs.iter().try_for_each(|a| write!(f, "{a} "))?;
-				write!(f, "{} {}(", "fn".yellow().dimmed(), name.red())?;
-				for (i, (name, typ)) in args.iter().enumerate() {
-					write!(f, "{name}: {typ}")?;
+			Self::Assign { name, expr, ty, stat } => 
+				write!(f, "{} {name}{} = {expr}",
+					if *stat { "static" } else { "let" }.yellow().dimmed(),
+					if let Some(ty) = ty { format!(": {ty}").blue() } else { String::new().normal() } ),
+			Self::Lambda { args, ret, body } => {
+				write!(f, "|")?;
+				for (i, (name, ty)) in args.iter().enumerate() {
+					write!(f, "{name}")?;
+					if let Some(ty) = ty { write!(f, ": {ty}"); }
 					if i != args.len() - 1 { write!(f, ", ")?; }
 				}
-				write!(f, ")")?;
-
+				write!(f, "|")?;
 				if let Some(ret) = ret { write!(f, " {ret}")?; }
 
 				if body.is_empty() {
@@ -70,22 +85,22 @@ impl Display for Node<'_> {
 					return Ok(());
 				}
 
+				if body.len() == 1 {
+					write!(f, ": {}", body[0])?;
+					return Ok(());
+				}
+
 				writeln!(f, " {{")?;
 				body.iter().try_for_each(|s| writeln!(f, "   {s};"))?;
 				write!(f, "}}")
 			},
-			Self::Assign { name, value, ty } => 
-				write!(f, "{} {name}: {} = {value}",
-					"let".yellow().dimmed(),
-					ty.to_string().blue()),
-			Self::Store { name, value } =>
-				write!(f, "{name} = {value}"),
 			Self::Ret(expr) => match expr {
 				Some(expr) => write!(f, "{} {expr}", "ret".yellow().dimmed()),
 				None => write!(f, "{}", "ret".yellow().dimmed()),
 			},
-			Self::FuncCall { name, args } => {
-				write!(f, "{}(", format!("${name}").red())?;
+			Self::ImplRet(expr) => write!(f, "{} {expr}", "iret".yellow().dimmed()),
+			Self::FuncCall { lhs, args } => {
+				write!(f, "{}(", format!("{lhs}").red())?;
 				for (i, arg) in args.iter().enumerate() {
 					write!(f, "{arg}")?;
 					if i != args.len() - 1 { write!(f, ", ")?; }
@@ -93,8 +108,25 @@ impl Display for Node<'_> {
 				write!(f, ")")
 			},
 			Self::StrLit(s)  => write!(f, "{}", format!("{s:?}").green()),
-			Self::UIntLit(i) | Self::SIntLit(i) => write!(f, "{}", i.to_string().cyan()),
+			Self::IntLit(i) => write!(f, "{}", i.to_string().cyan()),
 			Self::Ident(name) => write!(f, "{name}"),
+			Self::ArrayLit(arr) => {
+				write!(f, "[")?;
+				for (i, item) in arr.iter().enumerate() {
+					write!(f, "{item}")?;
+					if i != arr.len() - 1 { write!(f, ", ")?; }
+				}
+				write!(f, "]")
+			},
+
+			Self::Neg(expr) => write!(f, "-{expr}"),
+
+			Self::Sub(a, b) => write!(f, "({a} - {b})"),
+			Self::Add(a, b) => write!(f, "({a} + {b})"),
+			Self::Mul(a, b) => write!(f, "({a} * {b})"),
+			Self::Div(a, b) => write!(f, "({a} / {b})"),
+			Self::Mod(a, b) => write!(f, "({a} % {b})"),
+			Self::Store(a, b) => write!(f, "{a} = {b}"),
 		}
 	}
 }
@@ -112,7 +144,7 @@ impl Display for Type<'_> {
 			Self::Usize  => String::from("usize"),
 			Self::Opt(i) => format!("opt {i}"),
 			Self::Ptr(i) => format!("*{i}"),
-			Self::Arr(i, Some(s)) => format!("[{i}:{s}]"),
+			Self::Arr(i, Some(s)) => format!("[{i} {s}]"),
 			Self::Arr(i, None)    => format!("[{i}]"),
 			Self::Mut(i) => format!("mut {i}"),
 			Self::Fn(args, ret) => {

@@ -173,8 +173,8 @@ impl Display for Report {
 
 			writeln!(f, "{padding}{}{}{}",
 				&trimmed_start,
-				file[span.start..=span.end].color(secondary).bold(),
-				&file[span.end+1..line_start + line.len()].trim_end())?;
+				file[span.start..=span.end].trim_end().color(secondary).bold(),
+				&file.get(span.end+1..line_start + line.len()).map_or("", |s| s.trim_end()))?;
 
 			writeln!(f, "{padding}{}{} {}",
 				" ".repeat(trimmed_start.len()),

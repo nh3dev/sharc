@@ -94,11 +94,11 @@ pub enum Type {
 impl Display for DataAttr {
 	fn fmt(&self, f: &mut Formatter) -> fmt::Result {
 		match self {
-			Self::Internal    => write!(f, "internal "),
-			Self::Private     => write!(f, "private "),
-			Self::UnnamedAddr => write!(f, "unnamed_addr "),
-			Self::Constant    => write!(f, "constant "),
-			Self::Global      => write!(f, "global "),
+			Self::Internal    => write!(f, "internal"),
+			Self::Private     => write!(f, "private"),
+			Self::UnnamedAddr => write!(f, "unnamed_addr"),
+			Self::Constant    => write!(f, "constant"),
+			Self::Global      => write!(f, "global"),
 		}
 	}
 }
@@ -106,11 +106,11 @@ impl Display for DataAttr {
 impl Display for FuncAttr {
 	fn fmt(&self, f: &mut Formatter) -> fmt::Result {
 		match self {
-			Self::Nounwind => write!(f, "nounwind "),
-			Self::NoReturn => write!(f, "noreturn "),
-			Self::NoInline => write!(f, "noinline "),
-			Self::AlwaysInline => write!(f, "alwaysinline "),
-			Self::Cold     => write!(f, "cold "),
+			Self::Nounwind => write!(f, "nounwind"),
+			Self::NoReturn => write!(f, "noreturn"),
+			Self::NoInline => write!(f, "noinline"),
+			Self::AlwaysInline => write!(f, "alwaysinline"),
+			Self::Cold     => write!(f, "cold"),
 		}
 	}
 }
@@ -128,7 +128,7 @@ impl Display for Module {
 impl Display for DataDef {
 	fn fmt(&self, f: &mut Formatter) -> fmt::Result {
 		write!(f, "@{} = ", self.name)?;
-		self.attr.iter().try_for_each(|a| write!(f, "{a}"))?;
+		self.attr.iter().try_for_each(|a| write!(f, "{a} "))?;
 		write!(f, "{}", self.value)
 	}
 }
@@ -142,8 +142,8 @@ impl Display for Function {
 			if i != self.args.len() - 1 { write!(f, ", ")?; }
 		}
 
-		write!(f, ")")?;
-		self.attr.iter().try_for_each(|a| write!(f, " {a}"))?;
+		write!(f, ") ")?;
+		self.attr.iter().try_for_each(|a| write!(f, "{a} "))?;
 		writeln!(f, "{{")?;
 
 		self.body.iter().try_for_each(|i| writeln!(f, "   {i}"))?;

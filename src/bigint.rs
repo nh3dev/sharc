@@ -1,28 +1,23 @@
 #[derive(Debug)]
-pub struct IBig(bool, Vec<u64>);
+pub struct IBig(Vec<u64>);
 
 impl From<u64> for IBig {
 	fn from(i: u64) -> Self {
-		Self(false, vec![i])
+		Self(vec![i])
 	}
 }
 
-impl From<i64> for IBig {
-	fn from(i: i64) -> Self {
-		Self(i < 0, vec![i.unsigned_abs()])
+impl TryFrom<&IBig> for u64 {
+	type Error = &'static str;
+	fn try_from(i: &IBig) -> Result<Self, Self::Error> {
+		if i.0.len() > 1 { return Err("IBig is too large"); }
+		Ok(i.0[0])
 	}
-}
-
-impl std::ops::Neg for IBig {
-	type Output = Self;
-	fn neg(self) -> Self::Output 
-	{ Self(!self.0, self.1) }
 }
 
 impl std::str::FromStr for IBig {
 	type Err = std::num::ParseIntError;
 
-	// NOTE: naive impl assuming input is unsigned, use '-' to negate
 	fn from_str(mut s: &str) -> Result<Self, Self::Err> {
 		const CHUNK_SIZE: usize = 19; // max u64 is 20 digits, but leave 1 as margin
 
@@ -34,13 +29,12 @@ impl std::str::FromStr for IBig {
 			s = &s[..s.len().saturating_sub(CHUNK_SIZE)];
 		}
 
-		Ok(Self(false, res))
+		Ok(Self(res))
 	}
 }
 
 impl std::fmt::Display for IBig {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-		if self.0 { write!(f, "-")?; }
-		self.1.iter().rev().try_for_each(|i| write!(f, "{i}"))
+		self.0.iter().rev().try_for_each(|i| write!(f, "{i}"))
 	}
 }
