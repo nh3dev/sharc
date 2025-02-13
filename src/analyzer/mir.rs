@@ -19,9 +19,8 @@ pub enum Node {
 		body:   Vec<Node>, // Assign | Global | Ret | FuncCall
 	},
 	FuncDecl {
-		id:   ValId,
-		args: Vec<Type>,
-		ret:  Type,
+		id: ValId,
+		ty: Type, // Fn
 	},
 	Assign {
 		id:  ValId,
@@ -57,7 +56,7 @@ pub enum Type {
 	U(u32), I(u32), B(u32), F(u32),
 	Usize, Isize,
 	Puint, Pint, Pbool, Pfloat,
-	Void, Never,
+	Any, None, Never,
 	Ptr(Box<Type>),
 	Arr(Box<Type>, Option<u64>),
 	Mut(Box<Type>),
@@ -72,11 +71,11 @@ impl fmt::Display for Node {
 			Self::Func { id, export, args, ret, body } => {
 				if *export { write!(f, "{} ", "export".yellow().dimmed())?; }
 
-				write!(f, "{} {}(", "fn".yellow().dimmed(), **id)?;
+				write!(f, "{id} {}(", "fn".yellow().dimmed())?;
 
 				for (i, (id, ty)) in args.iter().enumerate() {
 					if i != 0 { write!(f, ", ")?; }
-					write!(f, "%{}: {ty}", **id)?;
+					write!(f, "%{id}: {ty}")?;
 				}
 
 				write!(f, ") {ret}")?;
@@ -92,19 +91,10 @@ impl fmt::Display for Node {
 				}
 				write!(f, "}}")
 			},
-			Self::FuncDecl { id, args, ret } => {
-				write!(f, "{} {}(", "fn".yellow().dimmed(), **id)?;
-
-				for (i, ty) in args.iter().enumerate() {
-					if i != 0 { write!(f, ", ")?; }
-					write!(f, "{ty}")?;
-				}
-
-				write!(f, ") {ret}")
-			},
-			Self::Assign { id, ty, val } => write!(f, "%{}: {ty} = {val}", **id),
+			Self::FuncDecl { id, ty } => write!(f, "{} @{id} {ty}", "decl".yellow().dimmed()),
+			Self::Assign { id, ty, val } => write!(f, "%{id}: {ty} = {val}"),
 			Self::Store { to, from: (from, ty) } => write!(f, "{to} <- {from}: {ty}"),
-			Self::Global { id, ty, val } => write!(f, "@{}: {ty} = {val}", **id),
+			Self::Global { id, ty, val } => write!(f, "@{id}: {ty} = {val}"),
 			Self::Ret(Some(v), ty) => write!(f, "ret {v}: {ty}"),
 			Self::Ret(None, ty) => write!(f, "ret {ty}"),
 			Self::FuncCall { id, args } => {
@@ -134,7 +124,8 @@ impl fmt::Display for Type {
 			Self::Pfloat  => String::from("{float}"),
 			Self::Usize   => String::from("usize"),
 			Self::Isize   => String::from("isize"),
-			Self::Void    => String::from("void"),
+			Self::Any     => String::from("any"),
+			Self::None    => String::from("none"),
 			Self::Never   => String::from("never"),
 			Self::Ptr(ty) => format!("*{ty}"),
 			Self::Arr(ty, None) => format!("[{ty}]"),

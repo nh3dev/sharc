@@ -15,7 +15,7 @@ use colored::Colorize;
 mod args;
 mod lexer;
 mod parser;
-// mod analyzer;
+mod analyzer;
 // mod codegen;
 mod report;
 mod bigint;
@@ -47,16 +47,16 @@ fn main() {
 	}
 
 
-	// if args.debug { eprintln!("\n{}", "ANALYSIS".bold()); }
-	// let (mir, sym) = analyzer::Analyzer::analyze(ast, args.file, &handler);
-	// if args.debug {
-	// 	sym.iter().map(|(k,v)| (k.0, v)).for_each(|(k,v)| eprintln!("{k}: \"{v}\""));
-	// 	mir.iter().for_each(|n| eprintln!("{n:#}")); 
-	// }
-	//
-	// if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
-	// 	std::process::exit(1);
-	// }
+	if args.debug { eprintln!("\n{}", "ANALYSIS".bold()); }
+	let (mir, sym) = analyzer::Analyzer::analyze(ast, args.file, &handler);
+	if args.debug {
+		sym.iter().map(|(k,v)| (k.0, v)).for_each(|(k,v)| eprintln!("{k}: \"{v}\""));
+		mir.iter().for_each(|n| eprintln!("{n:#}")); 
+	}
+
+	if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
+		std::process::exit(1);
+	}
 
 
 	// if args.debug { eprintln!("\n{}", "CODEGEN".bold()); }
