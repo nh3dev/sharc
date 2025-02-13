@@ -6,10 +6,10 @@ use colored::Colorize;
 
 #[derive(Debug)]
 pub enum Node<'src> {
-	Assign {
+	Let {
 		name:  Sp<&'src str>,
 		ty:    Option<Sp<Type<'src>>>,
-		expr: Box<Sp<Node<'src>>>,
+		expr:  Box<Sp<Node<'src>>>,
 		stat:  bool,
 	},
 
@@ -23,9 +23,11 @@ pub enum Node<'src> {
 		args: Vec<Sp<Node<'src>>>,
 	},
 	Lambda {
-		args: Vec<(Sp<&'src str>, Option<Sp<Type<'src>>>)>,
-		ret:  Option<Sp<Type<'src>>>,
-		body: Vec<Sp<Node<'src>>>,
+		args:   Vec<(Sp<&'src str>, Option<Sp<Type<'src>>>)>,
+		ret:    Option<Sp<Type<'src>>>,
+		body:   Vec<Sp<Node<'src>>>,
+		ext:    Option<String>,
+		export: Option<String>,
 	},
 
 	// UNARY EXPR
@@ -42,19 +44,11 @@ pub enum Node<'src> {
 	Store(Box<Sp<Node<'src>>>, Box<Sp<Node<'src>>>),
 }
 
-// TODO: prob throw out
-#[derive(Debug)]
-pub enum Attrs {
-	Export,
-	Extern,
-	Pub,
-}
-
 #[derive(Debug, Clone)]
 pub enum Type<'src> {
 	U(u32), I(u32), B(u32), F(u32),
 	Usize, Isize,
-	Void, Never,
+	Any, None, Never,
 	Opt(Box<Sp<Type<'src>>>),
 	Ptr(Box<Sp<Type<'src>>>),
 	Arr(Box<Sp<Type<'src>>>, Option<u64>),
@@ -66,24 +60,28 @@ pub enum Type<'src> {
 impl Display for Node<'_> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
-			Self::Assign { name, expr, ty, stat } => 
-				write!(f, "{} {name}{} = {expr}",
+			Self::Let { name, expr, ty, stat } =>
+				write!(f, "{} {name}{} = {expr};",
 					if *stat { "static" } else { "let" }.yellow().dimmed(),
 					if let Some(ty) = ty { format!(": {ty}").blue() } else { String::new().normal() } ),
-			Self::Lambda { args, ret, body } => {
+			Self::Lambda { args, ret, body, ext, export } => {
+				if let Some(e) = ext { write!(f, "{} {} ", 
+					"extern".yellow().dimmed(),
+					format!("{e:?}").green())?; }
+				if let Some(e) = export { write!(f, "{} {} ", 
+					"export".yellow().dimmed(),
+					format!("{e:?}").green())?; }
+
 				write!(f, "|")?;
 				for (i, (name, ty)) in args.iter().enumerate() {
 					write!(f, "{name}")?;
-					if let Some(ty) = ty { write!(f, ": {ty}"); }
+					if let Some(ty) = ty { write!(f, ": {ty}")?; }
 					if i != args.len() - 1 { write!(f, ", ")?; }
 				}
 				write!(f, "|")?;
 				if let Some(ret) = ret { write!(f, " {ret}")?; }
 
-				if body.is_empty() {
-					write!(f, ";")?;
-					return Ok(());
-				}
+				if body.is_empty() { return Ok(()); }
 
 				if body.len() == 1 {
 					write!(f, ": {}", body[0])?;
@@ -91,7 +89,7 @@ impl Display for Node<'_> {
 				}
 
 				writeln!(f, " {{")?;
-				body.iter().try_for_each(|s| writeln!(f, "   {s};"))?;
+				body.iter().try_for_each(|s| writeln!(f, "   {s}"))?;
 				write!(f, "}}")
 			},
 			Self::Ret(expr) => match expr {
@@ -138,7 +136,8 @@ impl Display for Type<'_> {
 			Self::I(i)   => format!("i{i}"),
 			Self::B(i)   => format!("b{i}"),
 			Self::F(i)   => format!("f{i}"),
-			Self::Void   => String::from("void"),
+			Self::Any    => String::from("any"),
+			Self::None   => String::from("none"),
 			Self::Never  => String::from("never"),
 			Self::Isize  => String::from("isize"),
 			Self::Usize  => String::from("usize"),
@@ -161,15 +160,5 @@ impl Display for Type<'_> {
 			},
 			Self::Ident(name) => String::from(*name),
 		}.purple())
-	}
-}
-
-impl Display for Attrs {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "{}", match self {
-			Self::Export => "export",
-			Self::Extern => "extern",
-			Self::Pub    => "pub",
-		}.yellow().dimmed())
 	}
 }

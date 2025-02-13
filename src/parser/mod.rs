@@ -4,7 +4,7 @@ use crate::span::{Spannable, Sp};
 use crate::bigint::IBig;
 
 pub mod ast;
-use ast::{Node, Type, Attrs};
+use ast::{Node, Type};
 
 pub struct Parser<'src> {
 	tokens:   Vec<Token<'src>>,
@@ -101,6 +101,27 @@ impl<'src> Parser<'src> {
 		let mut lhs = match token.kind {
 			// TODO: for<T: Display> |a: T| T
 			TokenKind::Pipe | TokenKind::PipePipe => self.parse_lambda()?,
+			TokenKind::KWExtern | TokenKind::KWExport => {
+				self.advance();
+
+				if !matches!(self.current().kind, TokenKind::StringLiteral) {
+					return ReportKind::UnexpectedToken
+						.title("Expected string literal")
+						.span(self.current().span).as_err();
+				}
+
+				let sym = parse_str(self.current())?;
+				self.advance();
+				let mut lam = self.parse_lambda()?;
+
+				match (token.kind, &mut lam.elem) {
+					(TokenKind::KWExport, &mut Node::Lambda { ref mut export, .. }) => *export = Some(sym),
+					(TokenKind::KWExtern, &mut Node::Lambda { ref mut ext, .. }) => *ext = Some(sym),
+					_ => unreachable!(),
+				}
+
+				lam
+			},
 			t if let Some(pow) = t.pbind_power() => {
 				self.advance();
 
@@ -131,9 +152,8 @@ impl<'src> Parser<'src> {
 							let mut args = Vec::new();
 
 							loop {
-								let token = self.current();
-								match token.kind {
-									TokenKind::RParen => break,
+								match self.current().kind {
+									TokenKind::RParen | TokenKind::EOF => break,
 									TokenKind::Comma => self.advance(),
 									_ => args.push(self.parse_expr(0)?),
 								}
@@ -188,8 +208,6 @@ impl<'src> Parser<'src> {
 			TokenKind::PipePipe => Vec::new(),
 			TokenKind::Pipe => {
 				self.advance();
-				let token = self.current();
-
 				let mut args = Vec::new();
 				loop {
 					let token = self.current();
@@ -236,28 +254,28 @@ impl<'src> Parser<'src> {
 				self.advance();
 				(self.parse_block(false), None)
 			},
-			TokenKind::Semicolon => {
-				self.advance();
-				(Vec::new(), None)
-			},
+			t if t.is_delim() => (Vec::new(), None),
 			_ => {
 				let ty = self.parse_type()?;
-
 				let token = self.current();
-				self.advance();
 
-				(match token.kind {
-					TokenKind::Colon     => vec![self.parse_expr(0)?],
-					TokenKind::LBrace    => self.parse_block(false),
-					TokenKind::Semicolon => Vec::new(),
-					_ => return ReportKind::UnexpectedToken
-						.title("Expected '{', ';', or ':'")
-						.span(token.span).as_err()?,
+				(match token.kind.is_delim() {
+					true => Vec::new(),
+					false => {
+						self.advance();
+						match token.kind {
+							TokenKind::Colon  => vec![self.parse_expr(0)?],
+							TokenKind::LBrace => self.parse_block(false),
+							_ => return ReportKind::UnexpectedToken
+								.title("Expected '{', ';', or ':'")
+								.span(token.span).as_err()?,
+						}
+					}
 				}, Some(ty))
 			},
 		};
 
-		Ok(Node::Lambda { args, ret, body }
+		Ok(Node::Lambda { args, ret, body, ext: None, export: None }
 			.span(start.extend(&self.current().span)))
 	}
 
@@ -289,7 +307,7 @@ impl<'src> Parser<'src> {
 				.span(self.current().span).as_err(),
 		};
 
-		Ok(Node::Assign { 
+		Ok(Node::Let { 
 			ty, stat, 
 			expr: expr.into(), 
 			name: token.text.span(token.span),
@@ -307,80 +325,12 @@ impl<'src> Parser<'src> {
 					.map_err(|e| ReportKind::InvalidNumber
 						.title(format!("Invalid integer literal: {e}"))
 						.span(token.span))?),
-			TokenKind::StringLiteral => {
-				let text = token.text;
-
-				let mut new_text = String::with_capacity(text.len());
-
-				let mut escape_flag = false;
-				for c in text.chars() {
-					if escape_flag {
-						new_text.push(parse_char(c));
-						escape_flag = false; 
-					} else if c == '\\' {
-						escape_flag = true;
-					} else {
-						new_text.push(c);
-					}
-				}
-
-				self.advance();
-				Node::StrLit(new_text)
-			},
+			TokenKind::StringLiteral => Node::StrLit(parse_str(token)?),
 			_ => return ReportKind::UnexpectedToken
 				.title(format!("Expected atom, got {:?}", token.text))
 				.span(token.span).as_err(),
 		}.span(token.span))
 	}
-
-	// 	let ast = match self.current().kind {
-	// 		TokenKind::KWRet => {
-	// 			self.advance();
-	//
-	// 			match self.current().kind {
-	// 				TokenKind::Semicolon => Node::Ret(None),
-	// 				_ => Node::Ret(Some(Box::new(self.parse_expr()?))),
-	// 			}.span(self.current().span)
-	// 		},
-	// 		TokenKind::Identifier => {
-	// 			let tok = self.current();
-	// 			self.advance();
-	//
-	// 			match self.current().kind {
-	// 				TokenKind::Equals => {
-	// 					self.advance();
-	// 					Node::Store {
-	// 						name: tok.text.span(tok.span),
-	// 						value: Box::new(self.parse_expr()?),
-	// 					}.span(tok.span.extend(&self.current().span))
-	// 				},
-	// 				_ => todo!()
-	// 			}
-	// 		}
-	// 	};
-
-	// 		TokenKind::LBracket => {
-	// 			self.advance();
-	//
-	// 			let mut exprs = Vec::new();
-	// 			loop {
-	// 				let expr = self.parse_expr()?;
-	//
-	// 				let token = self.current();
-	// 				self.advance();
-	// 				exprs.push(expr);
-	// 				match token.kind {
-	// 					TokenKind::Comma => (),
-	// 					TokenKind::RBracket => break,
-	// 					_ => return ReportKind::UnexpectedToken
-	// 						.title(format!("Expected ',' or ']', got '{:?}'", token.kind))
-	// 						.span(token.span).as_err(),
-	// 				}
-	// 			}
-	//
-	// 			Node::ArrayLit(exprs)
-	// 		},
-	// }
 
 	fn parse_type(&mut self) -> Result<Sp<Type<'src>>> {
 		let token = self.current();
@@ -421,27 +371,28 @@ impl<'src> Parser<'src> {
 			TokenKind::Identifier => match token.text {
 				"isize" => Type::Isize,
 				"usize" => Type::Usize,
-				n if n.starts_with('u') => Type::U(n[1..].parse()
+				n if let Some(n) = n.strip_prefix('u') => Type::U(n.parse()
 					.map_err(|_| ReportKind::InvalidNumber
 						.title("Invalid integer in primitive type")
 						.label("try 'u8'")
 						.span(token.span))?),
-				n if n.starts_with('i') => Type::I(n[1..].parse()
+				n if let Some(n) = n.strip_prefix('i') => Type::I(n.parse()
 					.map_err(|_| ReportKind::InvalidNumber
 						.title("Invalid integer in primitive type")
 						.label("try 'i8'")
 						.span(token.span))?),
-				n if n.starts_with('b') => Type::B(n[1..].parse()
+				n if let Some(n) = n.strip_prefix('b') => Type::B(n.parse()
 					.map_err(|_| ReportKind::InvalidNumber
 						.title("Invalid integer in primitive type")
 						.label("try 'b8'")
 						.span(token.span))?),
-				n if n.starts_with('f') => Type::F(n[1..].parse()
+				n if let Some(n) = n.strip_prefix('f') => Type::F(n.parse()
 					.map_err(|_| ReportKind::InvalidNumber
 						.title("Invalid integer in primitive type")
 						.label("try 'f8'")
 						.span(token.span))?),
-				"void"  => Type::Void,
+				"any"   => Type::Any,
+				"none"  => Type::None,
 				"never" => Type::Never,
 				"opt"   => Type::Opt(Box::new(self.parse_type()?)),
 				"mut"   => Type::Mut(Box::new(self.parse_type()?)),
@@ -454,42 +405,61 @@ impl<'src> Parser<'src> {
 	}
 }
 
-fn parse_char(chunk: char) -> char {
-	match chunk {
-		'0' | '@' => '\x00',
-		'A'       => '\x01',
-		'B'       => '\x02',
-		'C'       => '\x03',
-		'D'       => '\x04',
-		'E'       => '\x05',
-		'F'       => '\x06',
-		'G' | 'a' => '\x07',
-		'H' | 'b' => '\x08',
-		'I' | 't' => '\x09',
-		'J' | 'n' => '\x0A',
-		'K' | 'v' => '\x0B',
-		'L' | 'f' => '\x0C',
-		'M' | 'r' => '\x0D',
-		'N'       => '\x0E',
-		'O'       => '\x0F',
-		'P'       => '\x10',
-		'Q'       => '\x11',
-		'R'       => '\x12',
-		'S'       => '\x13',
-		'T'       => '\x14',
-		'U'       => '\x15',
-		'V'       => '\x16',
-		'W'       => '\x17',
-		'X'       => '\x18',
-		'Y'       => '\x19',
-		'Z'       => '\x1A',
-		'[' | 'e' => '\x1B',
-		'/'       => '\x1C',
-		']'       => '\x1D',
-		'^'       => '\x1E',
-		'_'       => '\x1F',
-		'?'       => '\x7F',
-		// '"'       => '\\',
-		_ => unreachable!(),
+fn parse_str(tok: Token) -> Result<String> {
+	let parse_char = 
+		|c| Some(match c {
+			'0' | '@' => '\x00',
+			'A'       => '\x01',
+			'B'       => '\x02',
+			'C'       => '\x03',
+			'D'       => '\x04',
+			'E'       => '\x05',
+			'F'       => '\x06',
+			'G' | 'a' => '\x07',
+			'H' | 'b' => '\x08',
+			'I' | 't' => '\x09',
+			'J' | 'n' => '\x0A',
+			'K' | 'v' => '\x0B',
+			'L' | 'f' => '\x0C',
+			'M' | 'r' => '\x0D',
+			'N'       => '\x0E',
+			'O'       => '\x0F',
+			'P'       => '\x10',
+			'Q'       => '\x11',
+			'R'       => '\x12',
+			'S'       => '\x13',
+			'T'       => '\x14',
+			'U'       => '\x15',
+			'V'       => '\x16',
+			'W'       => '\x17',
+			'X'       => '\x18',
+			'Y'       => '\x19',
+			'Z'       => '\x1A',
+			'[' | 'e' => '\x1B',
+			'/'       => '\x1C',
+			']'       => '\x1D',
+			'^'       => '\x1E',
+			'_'       => '\x1F',
+			'?'       => '\x7F',
+			_ => return None,
+		});
+
+	let mut new_text = String::with_capacity(tok.text.len());
+
+	let mut escape_flag = false;
+	for c in tok.text.chars() {
+		match escape_flag {
+			true => {
+				new_text.push(parse_char(c)
+					.ok_or_else(|| ReportKind::UnexpectedCharacter
+						.title(format!("Invalid escape sequence: '\\{c}'"))
+						.span(tok.span))?);
+				escape_flag = false; 
+			},
+			_ if c == '\\' => escape_flag = true,
+			_ => new_text.push(c),
+		}
 	}
+
+	Ok(new_text)
 }
