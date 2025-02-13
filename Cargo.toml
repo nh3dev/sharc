@@ -8,11 +8,9 @@ repository  = "https://github.com/shard-org/sharc"
 keywords    = ["shard", "compiler", "language", "qbe"]
 categories  = ["compiler", "development-tools"]
 
-
 [dependencies]
 colored = "3.0"   # needed for cross platform
 progress = { path = "progress" }
-
 
 [profile.release]
 lto = "fat"
