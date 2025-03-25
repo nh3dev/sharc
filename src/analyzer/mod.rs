@@ -40,22 +40,22 @@ impl Analyzer {
 
 	#[inline]
 	fn peek_scope_mut(&mut self) -> &mut Scope {
-		self.scope.last_mut().unwrap()
+		unsafe { self.scope.last_mut().unwrap_unchecked() }
 	}
 
 	#[inline]
 	fn peek_scope(&self) -> &Scope {
-		self.scope.last().unwrap()
+		unsafe { self.scope.last().unwrap_unchecked() }
 	}
 
 	#[inline]
 	fn get_global_mut(&mut self) -> &mut Scope {
-		self.scope.first_mut().unwrap()
+		unsafe { self.scope.first_mut().unwrap_unchecked() }
 	}
 
 	#[inline]
 	fn get_global(&self) -> &Scope {
-		self.scope.first().unwrap()
+		unsafe { self.scope.first().unwrap_unchecked() }
 	}
 
 	// TODO: mayhaps dont clone
@@ -125,36 +125,34 @@ impl Analyzer {
 				nodes.push(Node::Assign { id, ty, val: val.into() });
 				nodes
 			},
-			_ => todo!(),
+			// TODO: idk if this is actually correct
+			_ => self.analyze_expr(node)?.1.map_or(Vec::new(), |n| vec![n]),
 		})
 	}
 
 	fn analyze_expr(&mut self, node: Sp<ast::Node>) -> Result<(Type, Option<Node>, Var)> {
 		Ok(match node.elem {
-			ast::Node::Lambda { args, ret, body, ext: Some(_), export: Some(_) } =>
+			ast::Node::Lambda { ext: Some(_), export: Some(_), .. } =>
 				return ReportKind::SyntaxError
 					.title(format!("Lambda cannot be both '{}' and '{}'", 
 						"extern".yellow().dimmed(), "export".yellow().dimmed()))
 					.span(node.span)
 					.as_err(),
 
-			ast::Node::Lambda { args, ret, body, ext: Some(sym), .. } => {
-				if !body.is_empty() {
-					return ReportKind::SyntaxError // TODO: maybe not SyntaxError
-						.title(format!("{} functions cannot have a body", "extern".yellow().dimmed()))
-						.span(node.span)
-						.as_err();
-				}
+			ast::Node::Lambda { body, ext: Some(_), .. } if !body.is_empty() =>
+				return ReportKind::SyntaxError // TODO: maybe not SyntaxError
+					.title(format!("{} functions cannot have a body", "extern".yellow().dimmed()))
+					.span(node.span)
+					.as_err(),
 
-				let id = self.peek_scope_mut().new_id();
-				self.symbols.insert(id, sym);
-
+			ast::Node::Lambda { args, ret, ext: Some(sym), .. } => {
 				let ret = ret.map_or(Type::None, |t| convert_ast_ty(&t));
 
 				let mut fargs = Vec::with_capacity(args.len());
 				for (_, ty) in args {
 					let ty = ty.ok_or_else(|| ReportKind::SyntaxError
-						.title("Types must be specified in extern functions")
+						// TODO: better message :p
+						.title(format!("All arg types must be specified in {} functions", "extern".yellow().dimmed()))
 						.span(node.span))?;
 
 					if matches!(*ty, ast::Type::Any | ast::Type::None) {
@@ -168,9 +166,47 @@ impl Analyzer {
 					fargs.push(convert_ast_ty(&ty.elem));
 				}
 
-				let ty = Type::Fn(fargs, ret.into());
+				let id = self.peek_scope_mut().new_id();
+				self.symbols.insert(id, sym);
 
+				let ty = Type::Fn(fargs, ret.into());
 				(ty.clone(), Some(Node::FuncDecl { id, ty }), Var::Glob(id))
+			},
+			ast::Node::Lambda { args, ret, body, export, .. } => {
+				// TODO: TYPE INFERENCE
+				let ret = ret.map_or_else(|| todo!("type inference"), |t| convert_ast_ty(&t));
+
+				self.push_new_scope();
+
+				let mut fargs = Vec::with_capacity(args.len());
+				for (n, ty) in args {
+					// TODO: TYPE INFERENCE
+					let ty = ty.unwrap_or_else(|| todo!("type inference"));
+
+					if matches!(*ty, ast::Type::Any | ast::Type::None) {
+						return ReportKind::TypeError
+							.title("Type 'any' and 'none' are not allowed as a function argument")
+							.help("Remove the arg, or change the type to '*any'")
+							.span(ty.span)
+							.as_err();
+					}
+
+					let ty = convert_ast_ty(&ty.elem);
+
+					let id = self.peek_scope_mut().new_id();
+					self.peek_scope_mut().locals.push((id, n.elem.to_string(), ty.clone()));
+					fargs.push((id, ty));
+				}
+
+				self.pop_scope();
+
+				let id = self.peek_scope_mut().new_id();
+
+				let export = export.map(|sym| self.symbols.insert(id, sym)).is_some();
+
+				(Type::Fn(fargs.iter().map(|(_, t)| t).cloned().collect(), ret.clone().into()),
+					Some(Node::Func { id, export, args: fargs, ret, body: todo!() }),
+					Var::Glob(id))
 			},
 			ast::Node::IntLit(v) => (Type::Puint, None, Var::Imm(v.into())),
 			ast::Node::StrLit(s) => {
@@ -184,12 +220,20 @@ impl Analyzer {
 					val: Node::StrLit(s).into(),
 				}), Var::Glob(id))
 			},
-			_ => todo!(),
-		})
-	}
+			ast::Node::Ident(name) => {
+				let (depth, (id, _, ty)) = self.find_matching_descending(|(_, n, _)| n == name)
+					.ok_or_else(|| ReportKind::UndefinedSym
+						.title(format!("'{name}' is not defined"))
+						.span(node.span))?;
 
-	fn analyze_lambda(&mut self) -> Result<Node> {
-		todo!()
+				(ty, None, match depth {
+					0 => Var::Glob(id),
+					_ => Var::Local(id),
+				})
+			},
+			// TODO: at some point we get rid of this. also, maybe get better printing for dbg?
+			_ => todo!("{}", node.elem),
+		})
 	}
 
 	// fn analyze_root(&mut self, node: Sp<ast::Node>) -> Result<Node> {
@@ -201,7 +245,6 @@ impl Analyzer {
 	// 				self.symbols.insert(id, name.elem.to_string());
 	// 			}
 	//
-	// 			self.push_new_scope();
 	//
 	// 			let mut nargs = Vec::new();
 	// 			let mut fargs = Vec::new();
@@ -216,9 +259,6 @@ impl Analyzer {
 	//
 	// 				let ty = convert_ast_ty(&ty.elem);
 	//
-	// 				let id = self.peek_scope_mut().new_id();
-	// 				self.peek_scope_mut().locals.push((id, n.elem.to_string(), ty.clone()));
-	// 				fargs.push((id, ty.clone()));
 	// 				nargs.push(ty);
 	// 			}
 	//
@@ -404,23 +444,6 @@ impl Analyzer {
 	//
 	// 			nodes.push(Node::Store { to: id, from: (v, ty) });
 	// 			nodes
-	// 		},
-	// 		_ => todo!(),
-	// 	})
-	// }
-
-	// fn analyze_expr(&mut self, node: Sp<ast::Node>) -> Result<(Type, Option<Node>, Var)> {
-	// 	Ok(match node.elem {
-	// 		ast::Node::Ident(name) => {
-	// 			let (depth, (id, _, ty)) = self.find_matching_descending(|(_, n, _)| n == name)
-	// 				.ok_or_else(|| ReportKind::UndefinedSym
-	// 					.title(format!("'{name}' is not defined"))
-	// 					.span(node.span))?;
-	//
-	// 			(ty, None, match depth {
-	// 				0 => Var::Glob(id),
-	// 				_ => Var::Local(id),
-	// 			})
 	// 		},
 	// 		_ => todo!(),
 	// 	})
