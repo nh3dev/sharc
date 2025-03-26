@@ -42,13 +42,18 @@ impl Gen {
 
 	fn gen_node(&mut self, node: Node) -> Result<()> {
 		match node {
-			Node::Func { id, export, args, ret, body } => {
+			Node::Func { id, args, ret, body } => {
 				let func = llvm::Function {
 					attr: Vec::new(),
-					name: match export {
-						true  => self.get_id_name(id).to_string(),
-						false => format!("g{}", *id),
+					
+					// Use sym.contains_key instead of an 'export' field
+					name: if self.sym.contains_key(&id) {
+						self.get_id_name(id).to_string()
+					} else {
+						format!("g{}", *id)
 					},
+	
+					// Process arguments and generate their LLVM types and names.
 					args: {
 						let mut nargs = Vec::new();
 						for (i, t) in args {
@@ -56,7 +61,9 @@ impl Gen {
 						}
 						nargs
 					},
+	
 					ret: gen_type(&ret)?,
+	
 					body: {
 						let mut nbody = Vec::new();
 						for stmt in body {
@@ -69,19 +76,26 @@ impl Gen {
 				self.module.funcs.push(func);
 			},
 			Node::FuncDecl { id, args, ret } => {
+				// Generate a function declaration for external functions.
 				let func = llvm::FuncDecl {
 					attr: Vec::new(),
 					name: self.get_id_name(id).to_string(),
+					// Convert argument types to LLVM types.
 					args: args.into_iter().map(|t| gen_type(&t)).collect::<Result<Vec<_>>>()?,
+					// Generate LLVM representation of the return type.
 					ret:  gen_type(&ret)?,
 				};
-
+	
+				// Add the generated function declaration to the module's list of declarations.
 				self.module.decls.push(func);
 			},
+			// TODO: handle other node types in the future.
 			_ => todo!(),
 		}
 		Ok(())
-	}
+	}	
+
+			
 
 	fn gen_stmt(&mut self, node: Node) -> Result<Vec<Instr>> {
 		Ok(vec![match node {

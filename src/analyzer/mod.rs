@@ -85,23 +85,27 @@ impl Analyzer {
 		Ok(match node.elem {
 			ast::Node::Func { name, args, ret, attrs, body } 
 				if attrs.iter().any(|a| matches!(**a, ast::Attrs::Extern)) => {
+				// Extern functions cannot have a body, so we return an error if one exists.
 				if !body.is_empty() {
-					return ReportKind::SyntaxError // TODO: maybe not SyntaxError
+					return ReportKind::SyntaxError
 						.title("Extern functions cannot have a body")
 						.span(node.span)
 						.as_err();
 				}
-
+	
+				// Extern functions cannot be exported, so we return an error if exported.
 				if attrs.iter().any(|a| matches!(**a, ast::Attrs::Export)) {
 					return ReportKind::SyntaxError
 						.title("Extern functions cannot be exported")
 						.span(node.span)
 						.as_err();
 				}
-
+	
+				// Generate a new identifier for the function and add it to the symbols table.
 				let id = self.peek_scope_mut().new_id();
 				self.symbols.insert(id, name.elem.to_string());
-
+	
+				// Process function arguments and ensure they are valid.
 				let mut nargs = Vec::new();
 				let mut fargs = Vec::new();
 				for (_, ty) in args {
@@ -112,31 +116,39 @@ impl Analyzer {
 							.span(ty.span)
 							.as_err();
 					}
-
+	
 					let ty = convert_ast_ty(&ty.elem);
 					fargs.push(ty.clone());
 					nargs.push(ty);
 				}
-
+	
+				// Determine the return type of the function.
 				let ret = ret.map_or(Type::Void, |t| convert_ast_ty(&t));
-
+	
+				// Add the function type to the local scope.
 				let ty = Type::Fn(nargs, Box::new(ret.clone()));
 				self.peek_scope_mut().locals.push((id, name.elem.to_string(), ty));
-
+	
+				// Return a function declaration node.
 				Node::FuncDecl {
-					id, ret,
+					id,
+					ret,
 					args: fargs,
 				}
 			},
 			ast::Node::Func { name, args, ret, attrs, body } => {
+				// Generate a new identifier for the function.
 				let id = self.peek_scope_mut().new_id();
-
+	
+				// If the function is exported, add it to the symbols table.
 				if attrs.iter().any(|a| matches!(**a, ast::Attrs::Export)) {
 					self.symbols.insert(id, name.elem.to_string());
 				}
-
+	
+				// Push a new scope for analysing the function body.
 				self.push_new_scope();
-
+	
+				// Process function arguments and ensure they are valid.
 				let mut nargs = Vec::new();
 				let mut fargs = Vec::new();
 				for (n, ty) in args {
@@ -147,54 +159,59 @@ impl Analyzer {
 							.span(ty.span)
 							.as_err();
 					}
-
+	
 					let ty = convert_ast_ty(&ty.elem);
-
+	
+					// Add each argument to the local scope with its identifier and type.
 					let id = self.peek_scope_mut().new_id();
 					self.peek_scope_mut().locals.push((id, n.elem.to_string(), ty.clone()));
 					fargs.push((id, ty.clone()));
 					nargs.push(ty);
 				}
-
+	
+				// Determine the return type of the function.
 				let ret = ret.map_or(Type::Void, |t| convert_ast_ty(&t));
 				let ty = Type::Fn(nargs, Box::new(ret.clone()));
-
+	
+				// Add the function type to its parent scope (one level above).
 				let scope_len = self.scope.len();
 				self.scope.get_mut(scope_len - 2).unwrap()
 					.locals.push((id, name.elem.to_string(), ty));
-
-				// TODO: try fold? 🥺👉👈
+	
+				// Analyse each statement in the body of the function.
 				let mut nodes = Vec::new();
 				for node in body {
 					nodes.extend(self.analyze_stmt(node, &ret)?);
 				}
-
+	
+				// Ensure that all return statements match the declared return type.
 				for node in nodes.iter_mut().filter(|n| matches!(n, Node::Ret(_, _))) {
 					let Node::Ret(_, ref mut t) = node 
 						else { unreachable!() };
-
+	
 					if !cmp_ty(&t, &ret) {
 						return ReportKind::TypeError
 							.title("Return type mismatch")
-							// .label(format!("expected '{ret}', found '{t}'"))
-							// .span(node.span) // TODO: span
 							.as_err();
 					}
-
+	
 					*t = ret.clone();
 				}
-
+	
+				// Pop the current scope after analysing the function body.
 				self.pop_scope();
+	
+				// Return a function node without an 'export' field (removed earlier).
 				Node::Func {
-					id, ret, 
-					body:   nodes,
-					args:   fargs,
-					export: attrs.iter().any(|a| matches!(**a, ast::Attrs::Export)),
+					id,
+					ret,
+					body: nodes,
+					args: fargs,
 				}
 			},
 			_ => todo!(),
 		})
-	}
+	}		
 
 	fn analyze_stmt(&mut self, node: Sp<ast::Node>, ret: &Type) -> Result<Vec<Node>> {
 		Ok(match node.elem {
