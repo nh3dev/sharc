@@ -21,6 +21,7 @@ mod report;
 mod bigint;
 mod fs;
 mod span;
+mod motd;
 
 fn main() {
 	let args = args::Args::parse(std::env::args().skip(1));
@@ -34,6 +35,7 @@ fn main() {
 	if args.debug { tokens.iter().for_each(|token| eprintln!("{token:#}")); }
 
 	if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
+		handler.log(motd::get_fail_msg());
 		std::process::exit(1);
 	}
 
@@ -43,6 +45,7 @@ fn main() {
 	if args.debug { ast.iter().for_each(|n| eprintln!("{n:#}")); }
 
 	if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
+		handler.log(motd::get_fail_msg());
 		std::process::exit(1);
 	}
 
@@ -55,6 +58,7 @@ fn main() {
 	}
 
 	if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
+		handler.log(motd::get_fail_msg());
 		std::process::exit(1);
 	}
 

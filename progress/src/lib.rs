@@ -10,7 +10,7 @@ use std::sync::mpsc;
 use std::io::{self, Write};
 
 enum Event {
-	Log(&'static str),
+	Log(String),
 
 	EnableBar(String, ProgressBarKind),
 	ProgressBarSet(f64),
@@ -71,8 +71,11 @@ fn thread_loop(rx: mpsc::Receiver<Event>) {
 		),
 	};
 
-	let redraw = |offset: usize, bar: Option<&ProgressBar>, log_bar: &str| {
+	let clear_bar = |offset: usize| 
 		eprint!("{}", "\x1B[1A\x1B[2K".repeat(offset));
+
+	let redraw = |offset: usize, bar: Option<&ProgressBar>, log_bar: &str| {
+		clear_bar(offset);
 		eprint!("{log_bar}");
 		bar.map(|bar| eprint!("{}", get_bar(bar))); 
 		io::stderr().flush().unwrap();
@@ -84,6 +87,7 @@ fn thread_loop(rx: mpsc::Receiver<Event>) {
 	loop {
 		match rx.recv().expect("Failed to receive event") {
 			Event::Log(log) => {
+				clear_bar(offset(bar.is_some(), &log_bar)); // untested :)
 				eprint!("{log}");
 				redraw(0, bar.as_ref(), &log_bar);
 			},
@@ -193,10 +197,10 @@ impl LogHandler {
 	}
 
 	#[track_caller]
-	pub fn log<T: Display>(&self, log: T) {
+	pub fn log(&self, log: impl Display) {
 		#[cfg(debug_assertions)]
 		eprintln!("ERRAT: {}", std::panic::Location::caller());
-		self.tx.send(Event::Log(Box::leak(log.to_string().into_boxed_str())))
+		self.tx.send(Event::Log(log.to_string()))
 			.expect("Failed to send Log event");
 	}
 

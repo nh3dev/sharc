@@ -74,8 +74,6 @@ impl Analyzer {
 		(ast.into_iter().fold(Vec::new(), |mut acc, node| {
 			match analyzer.analyze_stmt(node) {
 				Ok(n)  => {
-					// FIXME: remove :)
-					n.iter().for_each(|n| println!("{n}"));
 					acc.extend(n);
 				},
 				Err(e) => {
@@ -108,28 +106,28 @@ impl Analyzer {
 						.as_err();
 				}
 
-				let id = self.peek_scope_mut().new_id();
-				let val = match expr {
-					// TODO: exception for fuunc call???????
-					None | Some(Node::FuncDecl { .. }) => Node::Var(var),
-					_ => todo!(),
-				};
+				match expr {
+					Some(Node::FuncDecl { id, .. }) | Some(Node::Func { id, .. }) => {
+						self.peek_scope_mut().locals.push((id, name.to_string(), ty.clone()));
+						expr.into_iter().collect()
+					},
+					_ => {
+						let id = self.peek_scope_mut().new_id();
+						self.peek_scope_mut().locals.push((id, name.to_string(), ty.clone()));
 
-				let mut nodes = expr.map_or_else(|| Vec::with_capacity(1), |n| {
-					let mut v = Vec::with_capacity(2);
-					v.push(n);
-					v
-				});
-
-				self.peek_scope_mut().locals.push((id, name.to_string(), ty.clone()));
-				nodes.push(Node::Assign { id, ty, val: val.into() });
-				nodes
+						expr.into_iter()
+							.chain(std::iter::once(
+								Node::Assign { id, ty, val: Node::Var(var).into() }))
+							.collect()
+					},
+				}
 			},
 			// TODO: idk if this is actually correct
 			_ => self.analyze_expr(node)?.1.map_or(Vec::new(), |n| vec![n]),
 		})
 	}
 
+	// TODO: return a vec so we can have string and whateverthefucks
 	fn analyze_expr(&mut self, node: Sp<ast::Node>) -> Result<(Type, Option<Node>, Var)> {
 		Ok(match node.elem {
 			ast::Node::Lambda { ext: Some(_), export: Some(_), .. } =>
@@ -204,8 +202,13 @@ impl Analyzer {
 
 				let export = export.map(|sym| self.symbols.insert(id, sym)).is_some();
 
+				let mut fbody = Vec::with_capacity(body.len());
+				for node in body {
+					fbody.extend(self.analyze_stmt(node)?);
+				}
+
 				(Type::Fn(fargs.iter().map(|(_, t)| t).cloned().collect(), ret.clone().into()),
-					Some(Node::Func { id, export, args: fargs, ret, body: todo!() }),
+					Some(Node::Func { id, export, args: fargs, ret, body: fbody }),
 					Var::Glob(id))
 			},
 			ast::Node::IntLit(v) => (Type::Puint, None, Var::Imm(v.into())),
@@ -231,8 +234,45 @@ impl Analyzer {
 					_ => Var::Local(id),
 				})
 			},
+			ast::Node::FuncCall { lhs, args } => {
+				let span = lhs.span;
+				let (lhs_ty, lhs, lhs_val) = self.analyze_expr(*lhs)?;
+
+				// TODO: traits whatever stuff
+				let Type::Fn(fn_args, fn_ret) = lhs_ty else {
+					return Err(ReportKind::TypeError
+						.title(format!("'{lhs_ty}' is not callable"))
+						.span(span).into());
+				};
+
+				let mut fargs = Vec::with_capacity(args.len());
+				for (inx, arg) in args.into_iter().enumerate() {
+					let span = arg.span;
+					let (arg_ty, arg_node, arg_val) = self.analyze_expr(arg)?;
+
+					// TODO: default args and shit
+					if inx >= fn_args.len() {
+						return Err(ReportKind::InvalidArgCount
+							.title(format!("Expected {} arguments, got {}", fn_args.len(), inx + 1))
+							.span(span).into());
+					}
+
+					if !cmp_ty(&arg_ty, &fn_args[inx]) {
+						return Err(ReportKind::TypeError
+							.title("Type mismatch in function call")
+							.label(format!("expected '{}', found '{}'", fn_args[inx], arg_ty))
+							.span(span).into());
+					}
+
+					fargs.push((arg_val, arg_ty));
+				}
+
+				(*fn_ret, Some(Node::FuncCall { id: lhs_val, args: fargs }),
+					Var::Local(self.peek_scope_mut().new_id())
+				)
+			},
 			// TODO: at some point we get rid of this. also, maybe get better printing for dbg?
-			_ => todo!("{}", node.elem),
+			_ => todo!("{:?}", node.elem),
 		})
 	}
 

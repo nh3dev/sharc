@@ -84,13 +84,13 @@ impl Display for Node<'_> {
 				if body.is_empty() { return Ok(()); }
 
 				if body.len() == 1 {
-					write!(f, ": {}", body[0])?;
+					write!(f, ": {};", body[0])?;
 					return Ok(());
 				}
 
 				writeln!(f, " {{")?;
 				body.iter().try_for_each(|s| writeln!(f, "   {s}"))?;
-				write!(f, "}}")
+				write!(f, "}};")
 			},
 			Self::Ret(expr) => match expr {
 				Some(expr) => write!(f, "{} {expr}", "ret".yellow().dimmed()),
