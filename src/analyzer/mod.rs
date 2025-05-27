@@ -95,7 +95,7 @@ impl Analyzer {
 						.as_err();
 				}
 
-				let (expr_ty, expr, var) = self.analyze_expr(*expr)?;
+				let (expr_ty, mut expr, var) = self.analyze_expr(*expr)?;
 				let ty = ty.map_or_else(|| expr_ty.clone(), |t| convert_ast_ty(&t));
 
 				if !cmp_ty(&expr_ty, &ty) {
@@ -106,29 +106,34 @@ impl Analyzer {
 						.as_err();
 				}
 
-				match expr {
-					Some(Node::FuncDecl { id, .. }) | Some(Node::Func { id, .. }) => {
-						self.peek_scope_mut().locals.push((id, name.to_string(), ty.clone()));
-						expr.into_iter().collect()
+				match expr.last() {
+					Some(Node::FuncDecl { id, .. } | Node::Func { id, .. }) => {
+						self.peek_scope_mut().locals.push((*id, name.to_string(), ty));
+						expr
 					},
 					_ => {
 						let id = self.peek_scope_mut().new_id();
 						self.peek_scope_mut().locals.push((id, name.to_string(), ty.clone()));
 
-						expr.into_iter()
-							.chain(std::iter::once(
-								Node::Assign { id, ty, val: Node::Var(var).into() }))
-							.collect()
+						expr.push(Node::Assign { id, ty, val: Node::Var(var).into() });
+						expr
 					},
 				}
 			},
+			ast::Node::ImplRet(node) => {
+				let (ty, mut nodes, val) = self.analyze_expr(*node)?;
+
+				nodes.push(Node::Ret(Some(val), ty));
+				nodes
+			},
+			// expr as stmt
 			// TODO: idk if this is actually correct
-			_ => self.analyze_expr(node)?.1.map_or(Vec::new(), |n| vec![n]),
+			_ => self.analyze_expr(node)?.1,
 		})
 	}
 
 	// TODO: return a vec so we can have string and whateverthefucks
-	fn analyze_expr(&mut self, node: Sp<ast::Node>) -> Result<(Type, Option<Node>, Var)> {
+	fn analyze_expr(&mut self, node: Sp<ast::Node>) -> Result<(Type, Vec<Node>, Var)> {
 		Ok(match node.elem {
 			ast::Node::Lambda { ext: Some(_), export: Some(_), .. } =>
 				return ReportKind::SyntaxError
@@ -168,7 +173,7 @@ impl Analyzer {
 				self.symbols.insert(id, sym);
 
 				let ty = Type::Fn(fargs, ret.into());
-				(ty.clone(), Some(Node::FuncDecl { id, ty }), Var::Glob(id))
+				(ty.clone(), vec![Node::FuncDecl { id, ty }], Var::Glob(id))
 			},
 			ast::Node::Lambda { args, ret, body, export, .. } => {
 				// TODO: TYPE INFERENCE
@@ -184,7 +189,7 @@ impl Analyzer {
 					if matches!(*ty, ast::Type::Any | ast::Type::None) {
 						return ReportKind::TypeError
 							.title("Type 'any' and 'none' are not allowed as a function argument")
-							.help("Remove the arg, or change the type to '*any'")
+							.help(format!("Remove the arg, or change the type to '{}'", Type::Ptr(Type::Any.into())))
 							.span(ty.span)
 							.as_err();
 					}
@@ -202,26 +207,48 @@ impl Analyzer {
 
 				let export = export.map(|sym| self.symbols.insert(id, sym)).is_some();
 
-				let mut fbody = Vec::with_capacity(body.len());
-				for node in body {
-					fbody.extend(self.analyze_stmt(node)?);
+				let blen = body.len();
+				let mut fbody = Vec::with_capacity(blen);
+				for (i, node) in body.into_iter().enumerate() {
+					let span = node.span;
+					let mut nodes = self.analyze_stmt(node)?;
+
+					if let Some(Node::Ret(_, ty)) = nodes.last_mut() {
+						if !cmp_ty(ty, &ret) {
+							return Err(ReportKind::TypeError
+								.title("Return type mismatch")
+								.label(format!("expected '{ret}', found '{ty}'"))
+								.span(span).into());
+						}
+
+						*ty = ret.clone();
+					}
+
+					if !matches!(ret, Type::None) && i == blen - 1 
+						&& !matches!(nodes.last(), Some(Node::Ret(_, _)))  {
+						return Err(ReportKind::TypeError
+							.title("Return type mismatch")
+							.label(format!("expected {ret}, found {}", Type::None))
+							.span(span).into());
+					}
+
+					fbody.extend(nodes);
 				}
 
 				(Type::Fn(fargs.iter().map(|(_, t)| t).cloned().collect(), ret.clone().into()),
-					Some(Node::Func { id, export, args: fargs, ret, body: fbody }),
+					vec![Node::Func { id, export, args: fargs, ret, body: fbody }],
 					Var::Glob(id))
 			},
-			ast::Node::IntLit(v) => (Type::Puint, None, Var::Imm(v.into())),
+			ast::Node::IntLit(v) => (Type::Puint, Vec::new(), Var::Imm(v.into())),
 			ast::Node::StrLit(s) => {
 				let id = self.get_global_mut().new_id();
 
 				let ty = Type::Arr(Type::U(8).into(), Some(s.len() as u64));
 				
 				self.get_global_mut().locals.push((id, format!("__const{id:?}"), ty.clone()));
-				(ty.clone(), Some(Node::Global { 
-					ty, id, 
-					val: Node::StrLit(s).into(),
-				}), Var::Glob(id))
+				(ty.clone(), 
+					vec![Node::Global { ty, id, val: Node::StrLit(s).into(), }], 
+					Var::Glob(id))
 			},
 			ast::Node::Ident(name) => {
 				let (depth, (id, _, ty)) = self.find_matching_descending(|(_, n, _)| n == name)
@@ -229,7 +256,7 @@ impl Analyzer {
 						.title(format!("'{name}' is not defined"))
 						.span(node.span))?;
 
-				(ty, None, match depth {
+				(ty, Vec::new(), match depth {
 					0 => Var::Glob(id),
 					_ => Var::Local(id),
 				})
@@ -237,6 +264,9 @@ impl Analyzer {
 			ast::Node::FuncCall { lhs, args } => {
 				let span = lhs.span;
 				let (lhs_ty, lhs, lhs_val) = self.analyze_expr(*lhs)?;
+
+				let mut nodes = Vec::with_capacity(args.len() + 2); // best case guess
+				nodes.extend(lhs);
 
 				// TODO: traits whatever stuff
 				let Type::Fn(fn_args, fn_ret) = lhs_ty else {
@@ -260,16 +290,17 @@ impl Analyzer {
 					if !cmp_ty(&arg_ty, &fn_args[inx]) {
 						return Err(ReportKind::TypeError
 							.title("Type mismatch in function call")
-							.label(format!("expected '{}', found '{}'", fn_args[inx], arg_ty))
+							.label(format!("expected {}, found {}", fn_args[inx], arg_ty))
 							.span(span).into());
 					}
 
-					fargs.push((arg_val, arg_ty));
+					nodes.extend(arg_node);
+					fargs.push((arg_val, fn_args[inx].clone()));
 				}
 
-				(*fn_ret, Some(Node::FuncCall { id: lhs_val, args: fargs }),
-					Var::Local(self.peek_scope_mut().new_id())
-				)
+				nodes.push(Node::FuncCall { id: lhs_val, args: fargs });
+
+				(*fn_ret, nodes, Var::Local(self.peek_scope_mut().new_id()))
 			},
 			// TODO: at some point we get rid of this. also, maybe get better printing for dbg?
 			_ => todo!("{:?}", node.elem),

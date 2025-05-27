@@ -71,7 +71,7 @@ impl fmt::Display for Node {
 			Self::Func { id, export, args, ret, body } => {
 				if *export { write!(f, "{} ", "export".yellow().dimmed())?; }
 
-				write!(f, "{id} {}(", "fn".yellow().dimmed())?;
+				write!(f, "@{id} {}(", "fn".yellow().dimmed())?;
 
 				for (i, (id, ty)) in args.iter().enumerate() {
 					if i != 0 { write!(f, ", ")?; }

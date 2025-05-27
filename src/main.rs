@@ -4,7 +4,7 @@
 	clippy::single_match_else,clippy::ignored_unit_patterns,clippy::module_name_repetitions,
 	clippy::needless_for_each,clippy::derive_partial_eq_without_eq,clippy::missing_const_for_fn,
 	clippy::cognitive_complexity,clippy::option_if_let_else,clippy::option_map_unit_fn,
-	clippy::similar_names)]
+	clippy::similar_names, clippy::cast_possible_truncation)]
 
 #![feature(if_let_guard)]
 
@@ -16,7 +16,7 @@ mod args;
 mod lexer;
 mod parser;
 mod analyzer;
-// mod codegen;
+mod codegen;
 mod report;
 mod bigint;
 mod fs;
@@ -29,14 +29,19 @@ fn main() {
 
 	let handler = report::LogHandler::new();
 
+	let fail = |handler: report::LogHandler| -> ! {
+		handler.log(format!("\n{}\n", motd::get_fail_msg().red().bold()));
+		handler.terminate();
+		std::process::exit(1);
+	};
+
 
 	if args.debug { eprintln!("\n{}", "LEXER".bold()); }
 	let tokens = lexer::Lexer::tokenize(args.file, fs::CACHE.get(args.file), handler.clone());
 	if args.debug { tokens.iter().for_each(|token| eprintln!("{token:#}")); }
 
 	if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
-		handler.log(motd::get_fail_msg());
-		std::process::exit(1);
+		fail(handler);
 	}
 
 
@@ -45,32 +50,31 @@ fn main() {
 	if args.debug { ast.iter().for_each(|n| eprintln!("{n:#}")); }
 
 	if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
-		handler.log(motd::get_fail_msg());
-		std::process::exit(1);
+		fail(handler);
 	}
 
 
-	if args.debug { eprintln!("\n{}", "ANALYSIS".bold()); }
-	let (mir, sym) = analyzer::Analyzer::analyze(ast, args.file, &handler);
-	if args.debug {
-		sym.iter().map(|(k,v)| (k.0, v)).for_each(|(k,v)| eprintln!("{k}: \"{v}\""));
-		mir.iter().for_each(|n| eprintln!("{n:#}")); 
-	}
-
-	if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
-		handler.log(motd::get_fail_msg());
-		std::process::exit(1);
-	}
-
-
+	// if args.debug { eprintln!("\n{}", "ANALYSIS".bold()); }
+	// let (mir, sym) = analyzer::Analyzer::analyze(ast, args.file, &handler);
+	// if args.debug {
+	// 	sym.iter().map(|(k,v)| (k.0, v)).for_each(|(k,v)| eprintln!("{k}: \"{v}\""));
+	// 	mir.iter().for_each(|n| eprintln!("{n:#}")); 
+	// }
+	//
+	// if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
+	// 	fail(handler);
+	// }
+	//
+	//
 	// if args.debug { eprintln!("\n{}", "CODEGEN".bold()); }
 	// let code = codegen::Gen::codegen(args.file, sym, mir, &handler);
 	// if args.debug { eprintln!("{code}"); }
 	//
 	// if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
-	// 	std::process::exit(1);
+	// 	fail(handler);
 	// }
 	//
+	// // TODO: handle this better
 	// match args.output.is_empty() {
 	// 	true => handler.log(report::ReportKind::IOError
 	// 		.title("Output file not specified")),
