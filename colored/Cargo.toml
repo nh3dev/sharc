@@ -1,0 +1,12 @@
+[package]
+edition = "2021"
+rust-version = "1.80"
+name = "colored"
+version = "3.0.0"
+authors = ["Thomas Wickham <mackwic@gmail.com>"]
+description = "The most simple way to add colors in your terminal"
+homepage = "https://github.com/mackwic/colored"
+readme = "README.md"
+keywords = [ "color", "string", "term", "ansi_term", "term-painter" ]
+license = "MPL-2.0"
+repository = "https://github.com/mackwic/colored"

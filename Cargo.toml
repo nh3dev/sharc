@@ -9,7 +9,7 @@ keywords    = ["shard", "compiler", "language", "qbe"]
 categories  = ["compiler", "development-tools"]
 
 [dependencies]
-colored = "3.0"   # needed for cross platform
+colored  = { path = "colored" }
 progress = { path = "progress" }
 
 [profile.release]
