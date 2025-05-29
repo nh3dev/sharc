@@ -4,7 +4,7 @@ use crate::span::{Spannable, Sp};
 use crate::bigint::IBig;
 
 pub mod ast;
-use ast::{Node, Type};
+use ast::{Node, Primitive, LambdaArg};
 
 pub struct Parser<'src> {
 	tokens:   Vec<Token<'src>>,
@@ -21,7 +21,7 @@ impl<'src> Parser<'src> {
 
 	#[inline]
 	fn advance_if<F: FnOnce(TokenKind) -> bool>(&mut self, f: F) -> bool {
-		if f(self.current().kind) { self.advance(); true } else { false }
+		f(self.current().kind).then(|| self.advance()).is_some()
 	}
 
 	#[inline]
@@ -52,6 +52,7 @@ impl<'src> Parser<'src> {
 		while self.current().kind != until {
 			match self.parse_stmt() {
 				Ok(expr) => exprs.push(expr),
+				// FIXME: this behaviour is causing headaches... find someone who knows how to do this shit
 				Err(report) => {
 					self.log(*report);
 
@@ -74,23 +75,10 @@ impl<'src> Parser<'src> {
 		let stmt = match token.kind {
 			TokenKind::KWLet    => self.parse_assign(false)?,
 			TokenKind::KWStatic => self.parse_assign(true)?,
-			_ => {
-				let expr = self.parse_expr(0)?;
-
-				return match self.advance_if(|t| matches!(t, TokenKind::Semicolon)) {
-					true  => Ok(expr),
-					false => {
-						let span = expr.span;
-						Ok(Node::ImplRet(expr.into()).span(span))
-					},
-				}
-			},
+			_ => self.parse_expr(0)?,
 		};
 
-		self.advance_if(|t| matches!(t, TokenKind::Semicolon)).then_some(())
-			.ok_or_else(|| ReportKind::UnexpectedToken
-				.title("Expected ';'")
-				.span(self.current().span))?;
+		self.advance_if(|t| matches!(t, TokenKind::Semicolon));
 
 		Ok(stmt)
 	}
@@ -99,7 +87,13 @@ impl<'src> Parser<'src> {
 		let token = self.current();
 
 		let mut lhs = match token.kind {
-			// TODO: for<T: Display> |a: T| T
+			TokenKind::LBrace => {
+				self.advance();
+				let body = self.parse_block(false);
+				let span = body.last().map_or(token.span, |n| token.span.extend(&n.span));
+
+				Node::Block(body).span(span)
+			},
 			TokenKind::Pipe | TokenKind::PipePipe => self.parse_lambda()?,
 			TokenKind::KWExtern | TokenKind::KWExport => {
 				self.advance();
@@ -110,7 +104,7 @@ impl<'src> Parser<'src> {
 						.span(self.current().span).as_err();
 				}
 
-				let sym = parse_str(self.current())?;
+				let sym = parse_str(self.current())?.span(self.current().span);
 				self.advance();
 				let mut lam = self.parse_lambda()?;
 
@@ -128,10 +122,87 @@ impl<'src> Parser<'src> {
 				let rhs = self.parse_expr(pow.get())?;
 				let span = rhs.span;
 
-				match token.kind {
-					TokenKind::Minus => Node::Neg(rhs.into()),
+				(match token.kind {
+					TokenKind::Minus     => Node::Neg,
+					TokenKind::KWMut     => Node::Mut,
+					TokenKind::KWMove    => Node::Move,
+					TokenKind::Star      => Node::Star,
+					TokenKind::Ampersand => Node::Amp,
 					_ => unreachable!(),
-				}.span(token.span.extend(&span))
+				})(rhs.into()).span(token.span.extend(&span))
+			},
+			TokenKind::LBracket => {
+				self.advance();
+
+				let mut elems = Vec::new();
+				loop {
+					match self.current().kind {
+						TokenKind::RBracket | TokenKind::Semicolon => break,
+						TokenKind::Comma => self.advance(),
+						_ => elems.push(self.parse_expr(0)?),
+					}
+				}
+
+				let size = match self.current().kind {
+					TokenKind::RBracket => None,
+					TokenKind::Semicolon => {
+						self.advance();
+						let Node::IntLit(size) = self.parse_atom()?.elem else {
+							return ReportKind::UnexpectedToken
+								.title("Expected integer literal for array size")
+								.span(self.current().span).as_err();
+						};
+
+						Some((&size).try_into().map_err(|_| ReportKind::InvalidNumber
+							.title("intager literal too large for array size")
+							.label("max size is 2^64-1")
+							.span(self.current().span))?)
+					},
+					_ => return ReportKind::UnexpectedToken
+						.title("Expected ']' or ';'")
+						.span(self.current().span).as_err(),
+				};
+
+				self.advance_if(|t| matches!(t, TokenKind::RBracket)).then_some(())
+					.ok_or_else(|| ReportKind::UnexpectedToken
+						.title(format!("Expected ']', got '{:?}'", self.current().kind))
+						.span(self.current().span))?;
+
+				Node::ArrayLit(elems, size).span(token.span.extend(&self.current().span))
+			},
+			TokenKind::LParen => {
+				enum Kind { Union, Struct, None }
+				let mut kind = Kind::None;
+
+				self.advance();
+				let mut args = Vec::new();
+
+				loop {
+					match self.current().kind {
+						TokenKind::RParen | TokenKind::EOF => break,
+						TokenKind::Comma if matches!(kind, Kind::Struct) => self.advance(),
+						TokenKind::Pipe  if matches!(kind, Kind::Union ) => self.advance(),
+						TokenKind::Comma if matches!(kind, Kind::None) => {
+							self.advance();
+							kind = Kind::Struct;
+						},
+						TokenKind::Pipe  if matches!(kind, Kind::None) => {
+							self.advance();
+							kind = Kind::Union;
+						},
+						_ => args.push(self.parse_expr(0)?),
+					}
+				}
+
+				self.advance_if(|t| matches!(t, TokenKind::RParen)).then_some(())
+					.ok_or_else(|| ReportKind::UnexpectedToken
+						.title("Expected ')'")
+						.span(self.current().span))?;
+
+				match kind {
+					Kind::Struct | Kind::None => Node::StructLit(args),
+					Kind::Union  => Node::UnionLit(args),
+				}.span(token.span.extend(&self.current().span))
 			},
 			_ => self.parse_atom()?,
 		};
@@ -184,11 +255,13 @@ impl<'src> Parser<'src> {
 					let rspan = rhs.span;
 
 					lhs = match token.kind {
-						TokenKind::Plus    => Node::Add,
-						TokenKind::Minus   => Node::Sub,
-						TokenKind::Star    => Node::Mul,
-						TokenKind::Slash   => Node::Div,
-						TokenKind::Percent => Node::Mod,
+						TokenKind::Plus      => Node::Add,
+						TokenKind::Minus     => Node::Sub,
+						TokenKind::Star      => Node::Mul,
+						TokenKind::Slash     => Node::Div,
+						TokenKind::Percent   => Node::Mod,
+						TokenKind::Equals    => Node::Store,
+						TokenKind::Colon     => Node::Field,
 						_ => unreachable!(),
 					}(lhs.into(), rhs.into()).span(lspan.extend(&rspan));
 				},
@@ -215,21 +288,29 @@ impl<'src> Parser<'src> {
 						TokenKind::Pipe => break,
 						TokenKind::Comma => self.advance(),
 						TokenKind::Identifier => {
-							let name = token.text.span(token.span);
+							let ident = token.text.span(token.span);
 							self.advance();
 
-							let ty = match self.current().kind {
+							let (ty, default) = match self.current().kind {
 								TokenKind::Colon => {
 									self.advance();
-									Some(self.parse_type()?)
+									let expr = self.parse_expr(0)?;
+									match expr.elem {
+										Node::Store(lhs, rhs) => (Some(*lhs), Some(*rhs)),
+										_ => (Some(expr), None),
+									}
 								},
-								TokenKind::Comma | TokenKind::Pipe => None,
+								TokenKind::Equals => {
+									self.advance();
+									(None, Some(self.parse_expr(0)?))
+								},
+								TokenKind::Comma | TokenKind::Pipe => (None, None),
 								_ => return ReportKind::UnexpectedToken
-									.title("Expected ',' or '|'")
+									.title("Expected ',', '|', or '='")
 									.span(self.current().span).as_err(),
 							};
 
-							args.push((name, ty));
+							args.push(LambdaArg { ident, ty, default });
 						},
 						_ => return ReportKind::UnexpectedToken
 							.title("Expected identifier")
@@ -245,34 +326,17 @@ impl<'src> Parser<'src> {
 
 		self.advance();
 
-		let (body, ret) = match self.current().kind {
-			TokenKind::Colon     => {
+		let ret = match self.current().kind {
+			TokenKind::Colon => {
 				self.advance();
-				(vec![self.parse_expr(0)?], None)
+				Some(self.parse_expr(0)?.into())
 			},
-			TokenKind::LBrace    => {
-				self.advance();
-				(self.parse_block(false), None)
-			},
-			t if t.is_delim() => (Vec::new(), None),
-			_ => {
-				let ty = self.parse_type()?;
-				let token = self.current();
+			_ => None,
+		};
 
-				(match token.kind.is_delim() {
-					true => Vec::new(),
-					false => {
-						self.advance();
-						match token.kind {
-							TokenKind::Colon  => vec![self.parse_expr(0)?],
-							TokenKind::LBrace => self.parse_block(false),
-							_ => return ReportKind::UnexpectedToken
-								.title("Expected '{', ';', or ':'")
-								.span(token.span).as_err()?,
-						}
-					}
-				}, Some(ty))
-			},
+		let body = match self.current().kind {
+			TokenKind::Semicolon => None,
+			_ => Some(self.parse_expr(0)?.into()),
 		};
 
 		Ok(Node::Lambda { args, ret, body, ext: None, export: None }
@@ -281,12 +345,8 @@ impl<'src> Parser<'src> {
 
 	fn parse_assign(&mut self, stat: bool) -> Result<Sp<Node<'src>>> {
 		self.advance();
-		let token = self.current();
-
-		self.advance_if(|t| matches!(t, TokenKind::Identifier)).then_some(())
-			.ok_or_else(|| ReportKind::UnexpectedToken
-				.title(format!("Expected identifier, got '{:?}'", self.current().kind))
-				.span(self.current().span))?;
+		let Sp { elem: Node::Ident { lit, gener }, span } = self.parse_ident()?
+			else { unreachable!() };
 
 		let (ty, expr) = match self.current().kind {
 			TokenKind::Equals => {
@@ -295,23 +355,22 @@ impl<'src> Parser<'src> {
 			},
 			TokenKind::Colon  => {
 				self.advance();
-				let ty = Some(self.parse_type()?);
-				self.advance_if(|t| matches!(t, TokenKind::Equals)).then_some(())
-					.ok_or_else(|| ReportKind::UnexpectedToken
-						.title(format!("Expected '=', got '{:?}'", self.current().kind))
-						.span(self.current().span))?;
-				(ty, self.parse_expr(0)?)
+				let expr = self.parse_expr(0)?;
+				match expr.elem {
+					Node::Store(lhs, rhs) => (Some(lhs), *rhs),
+					_ => (None, expr)
+				}
 			},
 			_ => return ReportKind::UnexpectedToken
 				.title(format!("Expected ':' or '=', got '{:?}'", self.current().kind))
 				.span(self.current().span).as_err(),
 		};
 
-		Ok(Node::Let { 
-			ty, stat, 
+		Ok(Node::Let {
+			ty, stat, gener,
 			expr: expr.into(), 
-			name: token.text.span(token.span),
-		}.span(token.span.extend(&self.current().span)))
+			ident: lit,
+		}.span(span.extend(&self.current().span)))
 	}
 
 	fn parse_atom(&mut self) -> Result<Sp<Node<'src>>> {
@@ -319,130 +378,129 @@ impl<'src> Parser<'src> {
 		self.advance();
 
 		Ok(match token.kind {
-			TokenKind::Identifier => Node::Ident(token.text),
-			TokenKind::DecimalIntLiteral => 
-				Node::IntLit(token.text.parse::<IBig>()
-					.map_err(|e| ReportKind::InvalidNumber
-						.title(format!("Invalid integer literal: {e}"))
-						.span(token.span))?),
-			TokenKind::StringLiteral => Node::StrLit(parse_str(token)?),
-			_ => return ReportKind::UnexpectedToken
-				.title(format!("Expected atom, got {:?}", token.text))
-				.span(token.span).as_err(),
-		}.span(token.span))
-	}
-
-	fn parse_type(&mut self) -> Result<Sp<Type<'src>>> {
-		let token = self.current();
-		self.advance();
-
-		Ok(match token.kind {
-			TokenKind::Star => Type::Ptr(Box::new(self.parse_type()?)).span(token.span),
-			TokenKind::LBracket => {
-				let ty = self.parse_type()?;
-
-				if matches!(self.current().kind, TokenKind::RBracket) {
-					self.advance();
-					return Ok(Type::Arr(Box::new(ty), None).span(token.span.extend(&self.current().span)));
-				}
-
-				let expr = self.parse_expr(0)
-					.map_err(|e| e.help("Expected array size"))?;
-
-				let Node::IntLit(ref size) = *expr else {
-					return ReportKind::UnexpectedToken
-						.title("Expected integer literal")
-						.span(expr.span).as_err();
-				};
-
-
-				let size = size.try_into()
-					.map_err(|_| ReportKind::InvalidNumber
-						.title("Invalid integer in array size")
-						.span(expr.span))?;
-
-				self.advance_if(|t| matches!(t, TokenKind::RBracket)).then_some(())
-					.ok_or_else(|| ReportKind::UnexpectedToken
-						.title(format!("Expected ']' or array size, got '{:?}'", self.current().kind))
-						.span(self.current().span))?;
-
-				Type::Arr(Box::new(ty), Some(size)).span(token.span.extend(&self.current().span))
-			},
-			TokenKind::Identifier => match token.text {
-				"isize" => Type::Isize,
-				"usize" => Type::Usize,
-				n if let Some(n) = n.strip_prefix('u') => Type::U(n.parse()
+			TokenKind::Quote => Node::Quote(token.text).span(token.span),
+			TokenKind::Identifier => Node::Primitive(match token.text {
+				"isize" => Primitive::Isize,
+				"usize" => Primitive::Usize,
+				"any"   => Primitive::Any,
+				"none"  => Primitive::None,
+				"never" => Primitive::Never,
+				"type"  => Primitive::Type,
+				n if let Some(n) = n.strip_prefix('u') => Primitive::U(n.parse()
 					.map_err(|_| ReportKind::InvalidNumber
 						.title("Invalid integer in primitive type")
 						.label("try 'u8'")
 						.span(token.span))?),
-				n if let Some(n) = n.strip_prefix('i') => Type::I(n.parse()
+				n if let Some(n) = n.strip_prefix('i') => Primitive::I(n.parse()
 					.map_err(|_| ReportKind::InvalidNumber
 						.title("Invalid integer in primitive type")
 						.label("try 'i8'")
 						.span(token.span))?),
-				n if let Some(n) = n.strip_prefix('b') => Type::B(n.parse()
+				n if let Some(n) = n.strip_prefix('b') => Primitive::B(n.parse()
 					.map_err(|_| ReportKind::InvalidNumber
 						.title("Invalid integer in primitive type")
 						.label("try 'b8'")
 						.span(token.span))?),
-				n if let Some(n) = n.strip_prefix('f') => Type::F(n.parse()
+				n if let Some(n) = n.strip_prefix('f') => Primitive::F(n.parse()
 					.map_err(|_| ReportKind::InvalidNumber
 						.title("Invalid integer in primitive type")
 						.label("try 'f8'")
 						.span(token.span))?),
-				"any"   => Type::Any,
-				"none"  => Type::None,
-				"never" => Type::Never,
-				"opt"   => Type::Opt(Box::new(self.parse_type()?)),
-				"mut"   => Type::Mut(Box::new(self.parse_type()?)),
-				n => Type::Ident(n),
-			}.span(token.span),
+				_ => {
+					self.index = self.index.saturating_sub(1); // FIXME: def wont come to bite me in the arse
+					return self.parse_ident();
+				},
+			}).span(token.span),
+			TokenKind::DecimalIntLiteral => Node::IntLit(token.text.parse::<IBig>()
+				.map_err(|e| ReportKind::InvalidNumber
+					.title(format!("Invalid integer literal: {e}"))
+					.span(token.span))?)
+				.span(token.span),
+			TokenKind::StringLiteral =>
+				Node::StrLit(parse_str(token)?).span(token.span),
 			_ => return ReportKind::UnexpectedToken
-				.title("Expected type")
+				.title(format!("Expected expression, got {:?}", token.text))
 				.span(token.span).as_err(),
 		})
+	}
+
+	fn parse_ident(&mut self) -> Result<Sp<Node<'src>>> {
+		let token = self.current();
+		self.advance_if(|t| matches!(t, TokenKind::Identifier)).then_some(())
+			.ok_or_else(|| ReportKind::UnexpectedToken
+				.title(format!("Expected identifier, got '{:?}'", self.current().kind))
+				.span(self.current().span))?;
+
+		// FIXME: do something about the whole ident<20 vs ident<20>
+		let gener = match self.current().kind {
+			TokenKind::LessThan => self.parse_generics()?,
+			_ => Vec::new(),
+		};
+
+		let span = gener.last().map_or(token.span, |g| g.span.extend(&token.span));
+
+		Ok(Node::Ident { lit: token.text.span(token.span), gener }.span(span))
+	}
+
+	fn parse_generics(&mut self) -> Result<Vec<Sp<Node<'src>>>> {
+		let token = self.current();
+		self.advance_if(|t| matches!(t, TokenKind::LessThan)).then_some(())
+			.ok_or_else(|| ReportKind::UnexpectedToken
+				.title("Expected '<' for generics")
+				.span(token.span))?;
+
+		let mut out = Vec::new();
+
+		loop {
+			match self.current().kind {
+				TokenKind::GreaterThan => break,
+				TokenKind::Comma => self.advance(),
+				_ => out.push(self.parse_expr(0)?),
+			}
+		}
+		self.advance();
+
+		Ok(out)
 	}
 }
 
 fn parse_str(tok: Token) -> Result<String> {
-	let parse_char = 
-		|c| Some(match c {
-			'0' | '@' => '\x00',
-			'A'       => '\x01',
-			'B'       => '\x02',
-			'C'       => '\x03',
-			'D'       => '\x04',
-			'E'       => '\x05',
-			'F'       => '\x06',
-			'G' | 'a' => '\x07',
-			'H' | 'b' => '\x08',
-			'I' | 't' => '\x09',
-			'J' | 'n' => '\x0A',
-			'K' | 'v' => '\x0B',
-			'L' | 'f' => '\x0C',
-			'M' | 'r' => '\x0D',
-			'N'       => '\x0E',
-			'O'       => '\x0F',
-			'P'       => '\x10',
-			'Q'       => '\x11',
-			'R'       => '\x12',
-			'S'       => '\x13',
-			'T'       => '\x14',
-			'U'       => '\x15',
-			'V'       => '\x16',
-			'W'       => '\x17',
-			'X'       => '\x18',
-			'Y'       => '\x19',
-			'Z'       => '\x1A',
-			'[' | 'e' => '\x1B',
-			'/'       => '\x1C',
-			']'       => '\x1D',
-			'^'       => '\x1E',
-			'_'       => '\x1F',
-			'?'       => '\x7F',
-			_ => return None,
-		});
+	let parse_char = |c| Some(match c {
+		'0' | '@' => '\x00',
+		'A'       => '\x01',
+		'B'       => '\x02',
+		'C'       => '\x03',
+		'D'       => '\x04',
+		'E'       => '\x05',
+		'F'       => '\x06',
+		'G' | 'a' => '\x07',
+		'H' | 'b' => '\x08',
+		'I' | 't' => '\x09',
+		'J' | 'n' => '\x0A',
+		'K' | 'v' => '\x0B',
+		'L' | 'f' => '\x0C',
+		'M' | 'r' => '\x0D',
+		'N'       => '\x0E',
+		'O'       => '\x0F',
+		'P'       => '\x10',
+		'Q'       => '\x11',
+		'R'       => '\x12',
+		'S'       => '\x13',
+		'T'       => '\x14',
+		'U'       => '\x15',
+		'V'       => '\x16',
+		'W'       => '\x17',
+		'X'       => '\x18',
+		'Y'       => '\x19',
+		'Z'       => '\x1A',
+		'[' | 'e' => '\x1B',
+		'/'       => '\x1C',
+		']'       => '\x1D',
+		'^'       => '\x1E',
+		'_'       => '\x1F',
+		'?'       => '\x7F',
+		_ => return None,
+	});
 
 	let mut new_text = String::with_capacity(tok.text.len());
 

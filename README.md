@@ -7,7 +7,7 @@ I cant do it all by myself.. :/
 - DO NOT RUSTFMT
 
 # TODOS
-- [ ] rework parser to support new typing behaviour
+- [x] rework parser to support new typing behaviour
 	- [ ] rework analysis to follow
 	- [ ] (prob not necessary) rework codegen to follow
 - [ ] make a step in between the ast and mir (hir) which is basically a typed ast
@@ -17,3 +17,4 @@ I cant do it all by myself.. :/
 - [ ] get the website back up
 	- [ ] move shard to faf (also make a faf org)??
 	- [ ] update sherbert with new docs
+- [ ] diff syntax for `<` since that conflicts with type generics `Foo<Bar>`

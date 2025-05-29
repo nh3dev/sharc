@@ -15,7 +15,8 @@ pub enum TokenKind {
 	KWStatic,
 	KWLet,
 	KWRet,
-	KWType,
+	KWMut,
+	KWMove,
 
 	FloatLiteral,
 
@@ -23,6 +24,7 @@ pub enum TokenKind {
 	OctalIntLiteral,
 	DecimalIntLiteral,
 	HexadecimalIntLiteral,
+	Quote,
 
 	StringLiteral,
 	CharLiteral,
@@ -67,7 +69,6 @@ pub enum TokenKind {
 	NotEquals,
 	ShiftLeft,
 	ShiftRight,
-	Apostrophe,
 
 	EOF,
 }
@@ -92,7 +93,7 @@ impl TokenKind {
 	pub fn pbind_power(self) -> Option<NonZeroU8> {
 		unsafe {
 			Some(NonZeroU8::new_unchecked(match self {
-				Self::Minus => 5,
+				Self::Minus | Self::Star | Self::KWMut | Self::KWMove => 5,
 				_ => return None,
 			}))
 		}
@@ -101,8 +102,9 @@ impl TokenKind {
 	pub fn ibind_power(self) -> Option<NonZeroU8> {
 		unsafe {
 			Some(NonZeroU8::new_unchecked(match self {
-				Self::Star | Self::Slash | Self::Percent => 2,
-				Self::Plus | Self::Minus => 1,
+				Self::Star | Self::Slash | Self::Percent => 3,
+				Self::Plus | Self::Minus => 2,
+				Self::Equals => 1,
 				_ => return None,
 			}))
 		}
@@ -118,6 +120,6 @@ impl TokenKind {
 	}
 
 	pub fn is_delim(self) -> bool {
-		matches!(self, Self::Semicolon | Self::RParen | Self::RBracket | Self::RBrace | Self::Comma)
+		matches!(self, Self::Semicolon | Self::LBrace | Self::RParen | Self::RBracket | Self::RBrace | Self::Comma | Self::Pipe)
 	}
 }

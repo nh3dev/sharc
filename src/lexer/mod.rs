@@ -1,7 +1,7 @@
 mod token;
 pub use token::{Token, TokenKind};
 
-use crate::report::{LogHandler, ReportKind, Report};
+use crate::report::{LogHandler, ReportKind, Report, Result};
 use crate::span::Span;
 
 #[allow(clippy::complexity)]
@@ -64,256 +64,8 @@ impl<'src> Lexer<'src> {
 			tokens: Vec::new(),
 		};
 
-		'outer: while let Some(current) = lex.next() {
-			let index = lex.index;
-			match current {
-				c if c.chars().any(char::is_whitespace) => (),
-
-				// TODO: make comments a token
-				"/" => match lex.peek() {
-					Some("/") => while Some("\n") != lex.next() { },
-					Some("*") => {
-						let mut depth = 0;
-						loop {
-							match lex.next() {
-								Some("/") if Some("*") == lex.peek() => {
-									lex.next();
-									depth += 1;
-								},
-								Some("*") if Some("/") == lex.peek() => {
-									lex.next();
-									depth -= 1;
-								},
-								None => lex.log(
-									ReportKind::UnterminatedMultilineComment
-										.title(format!("{depth} comments never terminated"))
-										.span(Span::new(index).end(lex.index))),
-								_ => (),
-							}
-
-							if depth == 0 { break; }
-						}
-					},
-					_ => lex.push_token_simple(TokenKind::Slash, 1),
-				},
-
-				c if c.chars().any(|c| c.is_ascii_alphabetic()) => {
-					while let Some(c) = lex.peek() {
-						if c.chars().any(|c| c.is_ascii_alphanumeric() || c == '_') {
-							lex.next();
-							continue;
-						}
-						break;
-					}
-
-					
-					let ident = lex.slice(index, lex.index + 1);
-					let kind = match ident {
-						"let"    => TokenKind::KWLet,
-						"static" => TokenKind::KWStatic,
-						"export" => TokenKind::KWExport,
-						"ret"    => TokenKind::KWRet,
-						"impl"   => TokenKind::KWImpl,
-						"type"   => TokenKind::KWType,
-						"extern" => TokenKind::KWExtern,
-						_ => TokenKind::Identifier,
-					};
-
-					lex.push_token(kind, index, lex.index);
-				},
-
-				"\"" => {
-					let Some(&start) = lex.iter.peek() else {
-						lex.log(
-							ReportKind::UnterminatedLiteral
-								.untitled()
-								.span(lex.span_from(index)));
-						continue;
-					};
-
-					let mut end = start;
-					loop { 
-						match lex.next() {
-							Some("\"") => break,
-							None => {
-								lex.log(
-									ReportKind::UnterminatedLiteral
-										.untitled()
-										.span(lex.span_from(index)));
-								continue 'outer;
-							},
-							_ => end = lex.index,
-						}
-					}
-
-					lex.push_token(TokenKind::StringLiteral, start, end);
-				},
-
-				"'" => {
-					let Some(&start) = lex.iter.peek() else {
-						lex.log(
-							ReportKind::UnterminatedLiteral
-								.untitled()
-								.span(lex.span_from(index)));
-						continue;
-					};
-
-					if matches!(lex.peek(), Some("'")) {
-						lex.log(
-							ReportKind::EmptyLiteral
-								.untitled()
-								.span(lex.span_from(index)));
-						continue;
-					}
-
-					let mut end = start;
-					match lex.next().unwrap() {
-						"\\" => {
-							if matches!(lex.next(), Some("'")) && !matches!(lex.peek(), Some("'")) {
-								lex.next();
-								lex.log(
-									ReportKind::UnterminatedLiteral
-										.untitled()
-										.span(lex.span_from(index))
-										.help("Remove the escape character"));
-								continue;
-							}
-
-							lex.next();
-						},
-
-						"\n" => {
-							lex.log(
-								ReportKind::UnterminatedLiteral
-									.untitled().span(lex.span_from(index)));
-							continue;
-						},
-
-						_ => {
-							if !matches!(lex.peek(), Some("'")) {
-								lex.log(
-									ReportKind::UnterminatedLiteral
-										.untitled().span(lex.span_from(index)));
-								continue;
-							}
-							
-							end = lex.index;
-
-							lex.next();
-						},
-					}
-
-					lex.push_token(TokenKind::CharLiteral, start, end);
-				},
-
-				"0" if lex.peek().filter(|c| "box".contains(c)).is_some() => {
-					let (kind, base) = match lex.peek() {
-						Some("b") => (TokenKind::BinaryIntLiteral, 2),
-						Some("o") => (TokenKind::OctalIntLiteral, 8),
-						Some("x") => (TokenKind::HexadecimalIntLiteral, 16),
-						_ => unreachable!(),
-					};
-
-					lex.next();
-					let start = lex.index;
-
-					if !lex.lex_integer(base) { continue; }
-
-					lex.push_token(kind, start, lex.index);
-				},
-
-				c if c.chars().any(|c| c.is_ascii_digit()) => {
-					let start = lex.index;
-					if !lex.lex_integer(10) { continue; }
-
-					if matches!(lex.peek(), Some(".")) {
-						lex.next();
-
-						if !lex.lex_integer(10) { continue; }
-
-						if matches!(lex.peek(), Some(".")) {
-							lex.log(ReportKind::SyntaxError
-								.title("Invalid Float Literal")
-								.span(lex.span_from(index)));
-							lex.next();
-							continue;
-						}
-
-						lex.push_token(TokenKind::FloatLiteral, start, lex.index);
-						continue;
-					}
-
-					lex.push_token(TokenKind::DecimalIntLiteral, start, lex.index);
-				},
-
-				s => {
-					let (token, len) = match s {
-						"." => (TokenKind::Dot, 1),
-						"'" => (TokenKind::Apostrophe, 1),
-						"!" => match lex.peek() {
-							Some("=") => (TokenKind::NotEquals, 2),
-							_ => (TokenKind::Bang, 1),
-						},
-						"~" => (TokenKind::Tilde, 1),
-						"@" => (TokenKind::At, 1),
-						"#" => (TokenKind::Pound, 1),
-						"$" => (TokenKind::Dollar, 1),
-						"%" => (TokenKind::Percent, 1),
-						"^" => match lex.peek() {
-							Some("^") => (TokenKind::CaretCaret, 2),
-							_ => (TokenKind::Caret, 1),
-						},
-						"&" => match lex.peek() {
-							Some("&") => (TokenKind::AmpersandAmpersand, 2),
-							_ => (TokenKind::Ampersand, 1),
-						},
-						"*" => (TokenKind::Star, 1),
-						"(" => (TokenKind::LParen, 1),
-						")" => (TokenKind::RParen, 1),
-						"-" => match lex.peek() {
-							Some(">") => (TokenKind::ArrowRight, 2),
-							_ => (TokenKind::Minus, 1),
-						},
-						"_" => (TokenKind::Underscore, 1),
-						"+" => (TokenKind::Plus, 1),
-						"[" => (TokenKind::LBracket, 1),
-						"]" => (TokenKind::RBracket, 1),
-						"{" => (TokenKind::LBrace, 1),
-						"}" => (TokenKind::RBrace, 1),
-						"|" => match lex.peek() {
-							Some("|") => (TokenKind::PipePipe, 2),
-							_ => (TokenKind::Pipe, 1),
-						},
-						";" => (TokenKind::Semicolon, 1),
-						":" => (TokenKind::Colon, 1),
-						"," => (TokenKind::Comma, 1),
-						"=" => match lex.peek() {
-							Some("=") => (TokenKind::EqualsEquals, 2),
-							Some(">") => (TokenKind::FatArrowRight, 2),
-							_ => (TokenKind::Equals, 1),
-						},
-						"<" => match lex.peek() {
-							Some("=") => (TokenKind::LessThanEquals, 2),
-							Some("-") => (TokenKind::ArrowLeft, 2),
-							Some("<") => (TokenKind::ShiftLeft, 2),
-							_ => (TokenKind::LessThan, 1),
-						},
-						">" => match lex.peek() {
-							Some("=") => (TokenKind::GreaterThanEquals, 2),
-							Some(">") => (TokenKind::ShiftRight, 2),
-							_ => (TokenKind::GreaterThan, 1),
-						},
-						"?" => (TokenKind::Question, 1),
-						c => {
-							lex.log(ReportKind::UnexpectedCharacter
-								.title(format!("'{c}'")).span(lex.span_from(index)));
-							continue;
-						},
-					};
-
-					lex.push_token_simple(token, len);
-				}
-			}
+		while let Some(current) = lex.next() {
+			if let Err(e) = lex.tokenize_inner(lex.index, current) { lex.log(*e) }
 		}
 
 		lex.tokens.push(Token {
@@ -325,34 +77,265 @@ impl<'src> Lexer<'src> {
 		lex.tokens
 	}
 
-	fn lex_integer(&mut self, base: usize) -> bool {
-		const CHARS: [char; 16] =
-			['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'];
+	fn tokenize_inner(&mut self, index: usize, current: &str) -> Result<()> {
+		match current {
+			c if c.chars().any(char::is_whitespace) => (),
 
-		let f = match base {
-			2  => |c| CHARS[..1].contains(&c),
-			8  => |c| CHARS[..7].contains(&c),
-			10 => |c| CHARS[..9].contains(&c),
-			16 => |c| CHARS.contains(&c),
-			_  => unreachable!(),
-		};
+			// TODO: make comments a token
+			"/" => match self.peek() {
+				Some("/") => while Some("\n") != self.next() { },
+				Some("*") => {
+					let mut depth = 0;
+					loop {
+						match self.next() {
+							Some("/") if Some("*") == self.peek() => {
+								self.next();
+								depth += 1;
+							},
+							Some("*") if Some("/") == self.peek() => {
+								self.next();
+								depth -= 1;
+							},
+							None => return ReportKind::UnterminatedMultilineComment
+								.title(format!("{depth} comments never terminated"))
+								.span(Span::new(index).end(self.index))
+								.as_err(),
+							_ => (),
+						}
 
+						if depth == 0 { break; }
+					}
+				},
+				_ => self.push_token_simple(TokenKind::Slash, 1),
+			},
+
+			c if c.chars().any(|c| c.is_ascii_alphabetic()) => {
+				while let Some(c) = self.peek() {
+					if c.chars().any(|c| c.is_ascii_alphanumeric() || c == '_') {
+						self.next();
+						continue;
+					}
+					break;
+				}
+
+				
+				let ident = self.slice(index, self.index + 1);
+				let kind = match ident {
+					"let"    => TokenKind::KWLet,
+					"static" => TokenKind::KWStatic,
+					"export" => TokenKind::KWExport,
+					"ret"    => TokenKind::KWRet,
+					"impl"   => TokenKind::KWImpl,
+					"extern" => TokenKind::KWExtern,
+					"mut"    => TokenKind::KWMut,
+					"move"   => TokenKind::KWMove,
+					_ => TokenKind::Identifier,
+				};
+
+				self.push_token(kind, index, self.index);
+			},
+
+			"\"" => {
+				let Some(&start) = self.iter.peek() else {
+					return ReportKind::UnterminatedLiteral
+						.untitled().span(self.span_from(index))
+						.as_err();
+				};
+
+				let mut end = start;
+				loop { 
+					match self.next() {
+						Some("\"") => break,
+						None => return ReportKind::UnterminatedLiteral
+							.untitled().span(self.span_from(index))
+							.as_err(),
+						_ => end = self.index,
+					}
+				}
+
+				self.push_token(TokenKind::StringLiteral, start, end);
+			},
+
+			"'" => {
+				let Some(&start) = self.iter.peek() else {
+					return ReportKind::UnterminatedLiteral
+						.untitled().span(self.span_from(index))
+						.as_err();
+				};
+
+				if matches!(self.peek(), Some("'")) {
+					return ReportKind::EmptyLiteral
+						.untitled()
+						.span(self.span_from(index))
+						.as_err();
+				}
+
+				match self.next().unwrap() {
+					"\\" => {
+						if matches!(self.next(), Some("'")) && !matches!(self.peek(), Some("'")) {
+							self.next();
+							return ReportKind::UnterminatedLiteral
+								.untitled()
+								.span(self.span_from(index))
+								.help("Remove the escape character")
+								.as_err();
+						}
+
+						self.next();
+					},
+
+					"\n" => return ReportKind::UnterminatedLiteral
+						.untitled().span(self.span_from(index))
+						.as_err(),
+
+					_ if matches!(self.peek(), Some("'")) => {
+						let end = self.index;
+						self.next();
+
+						self.push_token(TokenKind::CharLiteral, start, end);
+					},
+
+					_ => {
+						while matches!(self.peek(), Some(c) if c.chars().any(|c| c.is_ascii_alphanumeric() || c == '_')) {
+							self.next();
+						}
+						self.push_token(TokenKind::Quote, start, self.index);
+					},
+				}
+
+			},
+
+			"0" if self.peek().filter(|c| "box".contains(c)).is_some() => {
+				let (kind, base) = match self.peek() {
+					Some("b") => (TokenKind::BinaryIntLiteral, 2),
+					Some("o") => (TokenKind::OctalIntLiteral, 8),
+					Some("x") => (TokenKind::HexadecimalIntLiteral, 16),
+					_ => unreachable!(),
+				};
+
+				self.next();
+				let start = self.index;
+
+				self.lex_integer(base)?;
+				self.push_token(kind, start, self.index);
+			},
+
+			c if c.chars().any(|c| c.is_ascii_digit()) => {
+				let start = self.index;
+				self.lex_integer(10)?;
+
+				if matches!(self.peek(), Some(".")) {
+					self.next();
+					self.lex_integer(10)?;
+
+					if matches!(self.peek(), Some(".")) {
+						let end = self.index;
+						self.next();
+
+						return ReportKind::SyntaxError
+							.title("Invalid Float Literal")
+							.span(Span::new(index).end(end))
+							.as_err();
+					}
+
+					self.push_token(TokenKind::FloatLiteral, start, self.index);
+					return Ok(());
+				}
+
+				self.push_token(TokenKind::DecimalIntLiteral, start, self.index);
+			},
+
+			s => {
+				let (token, len) = match s {
+					"." => (TokenKind::Dot, 1),
+					"!" => match self.peek() {
+						Some("=") => (TokenKind::NotEquals, 2),
+						_ => (TokenKind::Bang, 1),
+					},
+					"~" => (TokenKind::Tilde, 1),
+					"@" => (TokenKind::At, 1),
+					"#" => (TokenKind::Pound, 1),
+					"$" => (TokenKind::Dollar, 1),
+					"%" => (TokenKind::Percent, 1),
+					"^" => match self.peek() {
+						Some("^") => (TokenKind::CaretCaret, 2),
+						_ => (TokenKind::Caret, 1),
+					},
+					"&" => match self.peek() {
+						Some("&") => (TokenKind::AmpersandAmpersand, 2),
+						_ => (TokenKind::Ampersand, 1),
+					},
+					"*" => (TokenKind::Star, 1),
+					"(" => (TokenKind::LParen, 1),
+					")" => (TokenKind::RParen, 1),
+					"-" => match self.peek() {
+						Some(">") => (TokenKind::ArrowRight, 2),
+						_ => (TokenKind::Minus, 1),
+					},
+					"_" => (TokenKind::Underscore, 1),
+					"+" => (TokenKind::Plus, 1),
+					"[" => (TokenKind::LBracket, 1),
+					"]" => (TokenKind::RBracket, 1),
+					"{" => (TokenKind::LBrace, 1),
+					"}" => (TokenKind::RBrace, 1),
+					"|" => match self.peek() {
+						Some("|") => (TokenKind::PipePipe, 2),
+						_ => (TokenKind::Pipe, 1),
+					},
+					";" => (TokenKind::Semicolon, 1),
+					":" => (TokenKind::Colon, 1),
+					"," => (TokenKind::Comma, 1),
+					"=" => match self.peek() {
+						Some("=") => (TokenKind::EqualsEquals, 2),
+						Some(">") => (TokenKind::FatArrowRight, 2),
+						_ => (TokenKind::Equals, 1),
+					},
+					"<" => match self.peek() {
+						Some("=") => (TokenKind::LessThanEquals, 2),
+						Some("-") => (TokenKind::ArrowLeft, 2),
+						Some("<") => (TokenKind::ShiftLeft, 2),
+						_ => (TokenKind::LessThan, 1),
+					},
+					">" => match self.peek() {
+						Some("=") => (TokenKind::GreaterThanEquals, 2),
+						Some(">") => (TokenKind::ShiftRight, 2),
+						_ => (TokenKind::GreaterThan, 1),
+					},
+					"?" => (TokenKind::Question, 1),
+					c => return ReportKind::UnexpectedCharacter
+						.title(format!("'{c}'"))
+						.span(self.span_from(index))
+						.as_err(),
+				};
+
+				self.push_token_simple(token, len);
+			}
+		}
+		Ok(())
+	}
+
+	fn lex_integer(&mut self, base: usize) -> Result<()> {
 		while let Some(c) = self.peek() {
-			match c.to_ascii_lowercase().chars().next().unwrap() {
-				c if f(c) || c == '_' => self.next(),
+			match c.chars().next().unwrap() {
+				c if match base {
+					2  => matches!(c, '1' | '0' | '_'),
+					8  => matches!(c, '0'..='7' | '_'),
+					10 => matches!(c, '0'..='9' | '_'),
+					16 => matches!(c, '0'..='9' | 'a'..='f' | 'A'..='F' | '_'),
+					_  => unreachable!(),
+				} => self.next(),
 
 				c if c.is_ascii_alphanumeric() => {
-					self.log(
-						ReportKind::SyntaxError
-							.title("Invalid Integer Literal")
-							.span(self.span_from(self.index - 1))
-							.label(format!("{c:?} not valid for base{base} Integer Literal")));
-					return false;
+					return ReportKind::SyntaxError
+						.title("Invalid Integer Literal")
+						.span(self.span_from(self.index - 1))
+						.label(format!("{c:?} not valid for base{base} Integer Literal"))
+						.as_err();
 				},
 
 				_ => break,
 			};
 		}
-		true
+		Ok(())
 	}
 }
