@@ -2,13 +2,16 @@ use std::collections::HashMap;
 
 use crate::parser::ast::{AST, Node};
 use crate::span::{Sp, Spannable};
+use crate::report::LogHandler;
 
 mod hir;
 use hir::{Ty, Type, TypeKind};
 
 pub struct TypeInf {
-	scopes: Vec<HashMap<&'static str, &'static Type>>,
-	bump:   bump::Bump,
+	handler:  LogHandler,
+	filename: &'static str,
+	scopes:   Vec<HashMap<&'static str, &'static Type>>, // prob do stuff with bump::Rc instead of ref
+	bump:     bump::Bump,
 }
 
 impl TypeInf {
@@ -37,10 +40,10 @@ impl TypeInf {
 		None
 	}
 
-	pub fn process(ast: AST) -> hir::TypedAST {
+	pub fn process(ast: AST, filename: &'static str, handler: LogHandler) -> hir::TypedAST {
 		let AST { bump, nodes } = ast;
 
-		let mut inf = Self { bump, scopes: vec![HashMap::new()] };
+		let mut inf = Self { bump, handler, filename, scopes: vec![HashMap::new()] };
 
 		hir::TypedAST {
 			#[allow(clippy::deref_addrof)]

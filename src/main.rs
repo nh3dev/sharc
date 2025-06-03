@@ -57,6 +57,15 @@ fn main() {
 	}
 
 
+	if args.debug { eprintln!("\n{}", "TYPEINF".bold()); }
+	let typed_ast = typeinf::TypeInf::process(ast, args.file, handler.clone());
+	if args.debug { typed_ast.nodes.iter().for_each(|n| eprintln!("{n:#}")); }
+
+	if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
+		fail(handler);
+	}
+
+
 	// if args.debug { eprintln!("\n{}", "ANALYSIS".bold()); }
 	// let (mir, sym) = analyzer::Analyzer::analyze(ast, args.file, &handler);
 	// if args.debug {
