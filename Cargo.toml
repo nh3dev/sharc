@@ -9,8 +9,10 @@ keywords    = ["shard", "compiler", "language", "qbe"]
 categories  = ["compiler", "development-tools"]
 
 [dependencies]
-colored  = { path = "colored" }
+colored  = { path = "colored"  }
 progress = { path = "progress" }
+bump     = { path = "bump"     }
+# bumpalo = { version = "3.17", features = ["collections", "boxed"] } # eventually have our own??
 
 [profile.release]
 lto = "fat"
