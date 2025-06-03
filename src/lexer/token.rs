@@ -74,13 +74,13 @@ pub enum TokenKind {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct Token<'source> {
+pub struct Token {
 	pub kind: TokenKind,
 	pub span: Span,
-	pub text: &'source str, // TODO: remove text, just slice from source with span
+	pub text: &'static str,
 }
 
-impl std::fmt::Display for Token<'_> {
+impl std::fmt::Display for Token {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
 		write!(f, "Token({:?}, {}", self.kind, 
 			format!("{}-{}", self.span.start, self.span.end).bright_black())?;

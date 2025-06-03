@@ -5,28 +5,28 @@ use crate::report::{LogHandler, ReportKind, Report, Result};
 use crate::span::Span;
 
 #[allow(clippy::complexity)]
-pub struct Lexer<'src> {
+pub struct Lexer {
 	file:     &'static str,
 	handler:  LogHandler,
-	contents: &'src str,
-	iter:     std::iter::Peekable<std::iter::Map<std::str::CharIndices<'src>, fn((usize, char)) -> usize>>,
+	contents: &'static str,
+	iter:     std::iter::Peekable<std::iter::Map<std::str::CharIndices<'static>, fn((usize, char)) -> usize>>,
 	index:    usize,
-	tokens:   Vec<Token<'src>>,
+	tokens:   Vec<Token>,
 }
 
-impl<'src> Lexer<'src> {
+impl Lexer {
 	fn log(&self, report: Report) {
 		self.handler.log(report.file(self.file));
 	}
 
-	fn next(&mut self) -> Option<&'src str> {
+	fn next(&mut self) -> Option<&'static str> {
 		self.iter.next().map(|i| { 
 			self.index = i; 
 			&self.contents[i..*self.iter.peek().unwrap_or(&self.contents.len())] 
 		})
 	}
 
-	fn peek(&mut self) -> Option<&'src str> {
+	fn peek(&mut self) -> Option<&'static str> {
 		self.iter.peek().and_then(|i| 
 			self.contents.get(*i..*i + match self.contents.get(*i..) {
 					Some(s) => s.char_indices().nth(1).map_or(self.contents.len(), |(i, _)| i),
@@ -42,7 +42,7 @@ impl<'src> Lexer<'src> {
 		});
 	}
 
-	fn slice(&self, start: usize, end: usize) -> &'src str {
+	fn slice(&self, start: usize, end: usize) -> &'static str {
 		&self.contents[start..end]
 	}
 
@@ -56,7 +56,7 @@ impl<'src> Lexer<'src> {
 		self.push_token(kind, index, self.index);
 	}
 
-	pub fn tokenize(file: &'static str, contents: &'src str, handler: LogHandler) -> Vec<Token<'src>> {
+	pub fn tokenize(file: &'static str, contents: &'static str, handler: LogHandler) -> Vec<Token> {
 		let mut lex = Self {
 			file, handler, contents,
 			index: 0,

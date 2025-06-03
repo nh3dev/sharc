@@ -15,6 +15,7 @@ impl Cache {
 			return contents;
 		}
 
+		// TODO: prob mmap instead?
 		let contents = std::fs::read_to_string(filename).unwrap_or_else(|e| {
 			print!("{}",
 				ReportKind::IOError

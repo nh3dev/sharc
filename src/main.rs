@@ -13,14 +13,17 @@ use std::sync::atomic::Ordering;
 use colored::Colorize;
 
 mod args;
+
 mod lexer;
 mod parser;
+mod typeinf;
 // mod analyzer;
 // mod codegen;
+
 mod report;
+mod span;
 mod bigint;
 mod fs;
-mod span;
 mod motd;
 
 fn main() {
@@ -47,7 +50,7 @@ fn main() {
 
 	if args.debug { eprintln!("\n{}", "PARSER".bold()); }
 	let ast = parser::Parser::parse(tokens, args.file, handler.clone());
-	if args.debug { ast.iter().for_each(|n| eprintln!("{n:#}")); }
+	if args.debug { ast.nodes.iter().for_each(|n| eprintln!("{n:#}")); }
 
 	if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
 		fail(handler);
@@ -65,7 +68,7 @@ fn main() {
 	// 	fail(handler);
 	// }
 	//
-	//
+
 	// if args.debug { eprintln!("\n{}", "CODEGEN".bold()); }
 	// let code = codegen::Gen::codegen(args.file, sym, mir, &handler);
 	// if args.debug { eprintln!("{code}"); }

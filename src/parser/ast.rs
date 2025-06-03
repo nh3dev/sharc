@@ -4,92 +4,99 @@ use crate::bigint::IBig;
 
 use colored::Colorize;
 
+type Box<T> = bump::Box<'static, T>;
+
+pub struct AST {
+	pub nodes: Box<[Sp<Node>]>,
+	pub bump:  bump::Bump,
+}
+
 #[derive(Debug)]
-pub enum Node<'src> {
+pub enum Node {
 	Let {
-		ident: Sp<&'src str>,
-		ty:    Option<Box<Sp<Node<'src>>>>,
-		gener: Vec<Sp<Node<'src>>>,
-		expr:  Box<Sp<Node<'src>>>,
+		ident: Sp<&'static str>,
+		ty:    Option<Box<Sp<Node>>>,
+		gener: Box<[Sp<Node>]>,
+		expr:  Box<Sp<Node>>,
 		stat:  bool, // static
 	},
 
 	Ident {
-		lit:   Sp<&'src str>, 
-		gener: Vec<Sp<Node<'src>>>,
+		lit:   Sp<&'static str>, 
+		gener: Box<[Sp<Node>]>,
 	},
 	StrLit(String),
 	IntLit(IBig),
-	ArrayLit(Vec<Sp<Node<'src>>>, Option<u64>), // [u8], [20, 3, 8], [u16; 10]
-	UnionLit(Vec<Sp<Node<'src>>>),  // ('foo | u8 | foo: u8)
-	StructLit(Vec<Sp<Node<'src>>>), // (u8, 20, foo: 20, foo: u8)
-	Primitive(Primitive<'src>),
-	Quote(&'src str), // 'foo
+	ArrayLit(Box<[Sp<Node>]>, Option<u64>), // [u8], [20, 3, 8], [u16; 10]
+	UnionLit(Box<[Sp<Node>]>),  // ('foo | u8 | foo: u8)
+	StructLit(Box<[Sp<Node>]>), // (u8, 20, foo: 20, foo: u8)
+	Primitive(Primitive),
+	Quote(&'static str), // 'foo
 
 	FuncCall {
-		lhs:  Box<Sp<Node<'src>>>,
-		args: Vec<Sp<Node<'src>>>,
+		lhs:  Box<Sp<Node>>,
+		args: Box<[Sp<Node>]>,
 	},
 	Lambda {
-		args:   Vec<LambdaArg<'src>>,
-		ret:    Option<Box<Sp<Node<'src>>>>,
-		body:   Option<Box<Sp<Node<'src>>>>,
+		args:   Box<[LambdaArg]>,
+		ret:    Option<Box<Sp<Node>>>,
+		body:   Option<Box<Sp<Node>>>,
 		ext:    Option<Sp<String>>, // string since these can contain escape codes
 		export: Option<Sp<String>>,
 	},
 
-	Block(Vec<Sp<Node<'src>>>),
+	Block(Box<[Sp<Node>]>),
 
 	// UNARY EXPR
-	Star(Box<Sp<Node<'src>>>),
-	Amp(Box<Sp<Node<'src>>>),
-	Neg(Box<Sp<Node<'src>>>),
-	Ret(Option<Box<Sp<Node<'src>>>>),
-	Move(Box<Sp<Node<'src>>>),
-	Mut(Box<Sp<Node<'src>>>),
+	Star(Box<Sp<Node>>),
+	Amp(Box<Sp<Node>>),
+	Neg(Box<Sp<Node>>),
+	Ret(Option<Box<Sp<Node>>>),
+	Move(Box<Sp<Node>>),
+	Mut(Box<Sp<Node>>),
 
 	// BINARY EXPR
-	Sub(Box<Sp<Node<'src>>>,   Box<Sp<Node<'src>>>),
-	Add(Box<Sp<Node<'src>>>,   Box<Sp<Node<'src>>>),
-	Mul(Box<Sp<Node<'src>>>,   Box<Sp<Node<'src>>>),
-	Div(Box<Sp<Node<'src>>>,   Box<Sp<Node<'src>>>),
-	Mod(Box<Sp<Node<'src>>>,   Box<Sp<Node<'src>>>),
-	Store(Box<Sp<Node<'src>>>, Box<Sp<Node<'src>>>), // foo = 20
-	Field(Box<Sp<Node<'src>>>, Box<Sp<Node<'src>>>), // foo: bar
+	Sub(Box<Sp<Node>>,   Box<Sp<Node>>),
+	Add(Box<Sp<Node>>,   Box<Sp<Node>>),
+	Mul(Box<Sp<Node>>,   Box<Sp<Node>>),
+	Div(Box<Sp<Node>>,   Box<Sp<Node>>),
+	Mod(Box<Sp<Node>>,   Box<Sp<Node>>),
+	Store(Box<Sp<Node>>, Box<Sp<Node>>), // foo = 20
+	Field(Box<Sp<Node>>, Box<Sp<Node>>), // foo: bar
 }
 
 #[derive(Debug)]
-pub struct LambdaArg<'src> {
-	pub ident:   Sp<&'src str>,
-	pub ty:      Option<Sp<Node<'src>>>,
-	pub default: Option<Sp<Node<'src>>>,
+pub struct LambdaArg {
+	pub ident:   Sp<&'static str>,
+	pub ty:      Option<Sp<Node>>,
+	pub default: Option<Sp<Node>>,
 }
 
 #[derive(Debug)]
-pub enum Primitive<'src> {
+pub enum Primitive {
 	U(u32), I(u32), B(u32), F(u32),
 	Usize, Isize,
 	Any, None, Never,
 	Type,
-	Fn(Vec<Sp<Node<'src>>>, Option<Box<Sp<Node<'src>>>>),
+	Fn(Box<[Sp<Node>]>, Option<Box<Sp<Node>>>),
 }
 
-impl Display for Node<'_> {
+impl Display for Node {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		fn join_tostring(iter: impl IntoIterator<Item = impl ToString>, s: &str) -> String {
-			iter.into_iter().map(|e| ToString::to_string(&e)).collect::<Vec<_>>().join(s)
+			iter.into_iter().map(|e| ToString::to_string(&e)).collect::<std::vec::Vec<_>>().join(s)
 		}
 
 		match self {
 			Self::Let { ident, ty, gener, expr, stat } =>
 				write!(f, "{} {ident}{}{} = {expr}",
 					if *stat { "static" } else { "let" }.yellow().dimmed(),
-					if gener.is_empty() { String::new() } else { format!("<{}>", join_tostring(gener, ", ")) },
+					if gener.is_empty() { String::new() } else { format!("<{}>", join_tostring(&**gener, ", ")) },
 					if let Some(ty) = ty { format!(": {ty}") } else { String::new() } ),
 
 			Self::Ident { lit, gener } => 
 				write!(f, "{}{}", lit.normal(), 
-					if gener.is_empty() { String::new() } else { format!("<{}>", join_tostring(gener, ", ")) }),
+					if gener.is_empty() { String::new() } else { format!("<{}>", join_tostring(&**gener, ", ")) }),
 			Self::StrLit(s) => write!(f, "{}", format!("{s:?}").green()),
 			Self::IntLit(i) => write!(f, "{}", i.to_string().cyan()),
 			Self::ArrayLit(arr, size) => {
@@ -101,8 +108,8 @@ impl Display for Node<'_> {
 				if let Some(size) = size { write!(f, "; {size}")?; }
 				write!(f, "]")
 			},
-			Self::UnionLit(variants) => write!(f, "({})", join_tostring(variants, " | ")),
-			Self::StructLit(fields)  => write!(f, "({})", join_tostring(fields, ", ")),
+			Self::UnionLit(variants) => write!(f, "({})", join_tostring(&**variants, " | ")),
+			Self::StructLit(fields)  => write!(f, "({})", join_tostring(&**fields, ", ")),
 			Self::Primitive(p) => write!(f, "{p}"),
 			Self::Quote(ident) => write!(f, "{}", format!("'{ident}").bright_red()),
 
@@ -174,7 +181,7 @@ impl Display for Node<'_> {
 	}
 }
 
-impl Display for LambdaArg<'_> {
+impl Display for LambdaArg {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(f, "{}", self.ident.normal())?;
 		if let Some(ty) = &self.ty { write!(f, ": {ty}")?; }
@@ -183,7 +190,7 @@ impl Display for LambdaArg<'_> {
 	}
 }
 
-impl Display for Primitive<'_> {
+impl Display for Primitive {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(f, "{}", match self {
 			Self::U(i)   => format!("u{i}"),
