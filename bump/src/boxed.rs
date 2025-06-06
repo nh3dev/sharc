@@ -16,7 +16,7 @@ impl crate::Bump {
 		if val.is_empty() { return Box::empty_slice() }
 		let data = self.alloc_size::<T>(std::mem::size_of_val(val)) as *mut T;
 
-		unsafe { 
+		unsafe {
 			std::ptr::copy_nonoverlapping(val.as_ptr(), data, val.len()); 
 			Box(std::slice::from_raw_parts_mut(data, val.len()))
 		}
@@ -24,19 +24,18 @@ impl crate::Bump {
 
 	#[inline]
 	pub fn alloc_from_vec<'bump, T>(&self, mut val: Vec<T>) -> Box<'bump, [T]> {
+		if val.is_empty() { return Box::empty_slice() }
 		let data = self.alloc_slice_raw(&val);
 
-		let ptr = val.as_mut_ptr();
-		let cap = val.capacity();
-		std::mem::forget(val);
-
-		let layout = std::alloc::Layout::array::<T>(cap).unwrap();
+		let layout = std::alloc::Layout::array::<T>(val.capacity()).unwrap();
 		unsafe {
-			std::alloc::dealloc(ptr as *mut u8, layout);
+			std::alloc::dealloc(val.as_mut_ptr() as *mut u8, layout);
 		}
 
+		std::mem::forget(val);
+
 		data
-	} 
+	}
 
 	#[inline]
 	pub fn alloc_slice<'bump, T: Copy>(&self, val: &[T]) -> Box<'bump, [T]> {
@@ -47,7 +46,7 @@ impl crate::Bump {
 	pub fn alloc_slice_clone<'bump, T: Clone>(&self, val: &[T]) -> Box<'bump, [T]> {
 		let data = self.alloc_size::<T>(std::mem::size_of_val(val)) as *mut T;
 
-		unsafe { 
+		unsafe {
 			val.iter().enumerate().for_each(|(i, e)| std::ptr::write(data.add(i), e.clone()));
 			Box(std::slice::from_raw_parts_mut(data, val.len()))
 		}
