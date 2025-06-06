@@ -1,4 +1,5 @@
 use std::fmt;
+use std::mem::ManuallyDrop;
 
 impl crate::Bump {
 	#[inline]
@@ -103,7 +104,7 @@ impl<T> Box<'_, T> {
 
 pub struct BoxIter<'a, T> {
 	index: usize,
-	data:  Box<'a, [T]>,
+	data:  ManuallyDrop<Box<'a, [T]>>,
 }
 
 impl<T> Iterator for BoxIter<'_, T> {
@@ -147,7 +148,7 @@ impl<'a, T> IntoIterator for Box<'a, [T]> {
 	type IntoIter = BoxIter<'a, T>;
 
 	#[inline]
-	fn into_iter(self) -> Self::IntoIter { BoxIter { index: 0, data: self } }
+	fn into_iter(self) -> Self::IntoIter { BoxIter { index: 0, data: ManuallyDrop::new(self) } }
 }
 
 impl<T: ?Sized> Drop for Box<'_, T> {
