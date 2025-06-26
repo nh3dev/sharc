@@ -2,8 +2,7 @@ use crate::lexer::{Token, TokenKind};
 use crate::report::{LogHandler, ReportKind, Result};
 use crate::span::{Spannable, Sp};
 use crate::bigint::IBig;
-
-use bump::{Bump, Box};
+use crate::bump::Box;
 
 pub mod ast;
 use ast::{Node, Primitive, LambdaArg};
@@ -13,7 +12,6 @@ pub struct Parser {
 	index:    usize,
 	handler:  LogHandler,
 	filename: &'static str,
-	bump:     Bump,
 }
 
 impl Parser {
@@ -37,35 +35,28 @@ impl Parser {
 		self.handler.log(report.file(self.filename));
 	}
 
-	fn alloc<T>(&self, elem: T) -> Box<'static, T> {
-		self.bump.alloc(elem).into_static_unsafe()
+	fn alloc<T>(&self, elem: T) -> Box<T> {
+		crate::bump::THREAD_BUMP.with(|a| a.alloc(elem).into_static_unsafe())
 	}
 
-	fn alloc_vec<T>(&self, elems: Vec<T>) -> Box<'static, [T]> {
-		self.bump.alloc_from_vec(elems).into_static_unsafe()
+	fn alloc_vec<T>(&self, elems: Vec<T>) -> Box<[T]> {
+		crate::bump::THREAD_BUMP.with(|a| a.alloc_from_vec(elems).into_static_unsafe())
 	}
 
 	pub fn parse(tokens: Vec<Token>, filename: &'static str, handler: LogHandler) -> ast::AST {
 		if tokens.is_empty() { 
-			return ast::AST {  
-				nodes: Box::empty_slice(),
-				bump:  Bump::new(),
-			} 
+			return Box::empty_slice();
 		}
 
 		let mut parser = Self {
 			tokens, handler, filename,
 			index: 0,
-			bump: Bump::new(),
 		};
 
-		ast::AST {
-			nodes: parser.parse_block(true),
-			bump:  parser.bump,
-		}
+		parser.parse_block(true)
 	}
 
-	fn parse_block(&mut self, global: bool) -> Box<'static, [Sp<Node>]> {
+	fn parse_block(&mut self, global: bool) -> Box<[Sp<Node>]> {
 		let mut exprs = Vec::new();
 		let until = if global { TokenKind::EOF } else { TokenKind::RBrace };
 
@@ -468,7 +459,7 @@ impl Parser {
 		Ok(Node::Ident { lit: token.text.span(token.span), gener }.span(span))
 	}
 
-	fn parse_generics(&mut self) -> Result<Box<'static, [Sp<Node>]>> {
+	fn parse_generics(&mut self) -> Result<Box<[Sp<Node>]>> {
 		let token = self.current();
 		self.advance_if(|t| matches!(t, TokenKind::LessThan)).then_some(())
 			.ok_or_else(|| ReportKind::UnexpectedToken

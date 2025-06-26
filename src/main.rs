@@ -25,6 +25,7 @@ mod span;
 mod bigint;
 mod fs;
 mod motd;
+mod bump;
 
 fn main() {
 	let args = args::Args::parse(std::env::args().skip(1));
@@ -50,7 +51,7 @@ fn main() {
 
 	if args.debug { eprintln!("\n{}", "PARSER".bold()); }
 	let ast = parser::Parser::parse(tokens, args.file, handler.clone());
-	if args.debug { ast.nodes.iter().for_each(|n| eprintln!("{n:#}")); }
+	if args.debug { ast.iter().for_each(|n| eprintln!("{n:#}")); }
 
 	if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
 		fail(handler);
@@ -59,7 +60,7 @@ fn main() {
 
 	if args.debug { eprintln!("\n{}", "TYPEINF".bold()); }
 	let typed_ast = typeinf::TypeInf::process(ast, args.file, handler.clone());
-	if args.debug { typed_ast.nodes.iter().for_each(|n| eprintln!("{n:#}")); }
+	if args.debug { typed_ast.iter().for_each(|n| eprintln!("{n:#}")); }
 
 	if report::ERR_COUNT.load(Ordering::Relaxed) > 0 {
 		fail(handler);

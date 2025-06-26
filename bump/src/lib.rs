@@ -61,6 +61,14 @@ impl Chunk {
 	}
 }
 
+impl Drop for Chunk {
+	fn drop(&mut self) {
+		unsafe {
+			munmap(self as *mut Self as *mut u8, self.size());
+		}
+	}
+}
+
 impl Default for Bump {
 	fn default() -> Self { Self::new() }
 }
@@ -145,10 +153,8 @@ impl Bump {
 		chunk.index += size + offset;
 		ptr as *mut [T]
 	}
-}
 
-impl Drop for Bump {
-	fn drop(&mut self) {
+	fn drop_chunks(&self) {
 		if self.chunk.get().is_none() { return; }
 
 		let mut chunk = self.chunk.get().unwrap();
@@ -156,15 +162,24 @@ impl Drop for Bump {
 		loop {
 			let prev = unsafe { chunk.as_ref().prev };
 
-			unsafe { 
-				munmap(chunk.as_ptr() as *mut u8, chunk.as_ref().size());
-			}
+			unsafe { std::ptr::drop_in_place(chunk.as_ptr()); }
 
 			match prev {
 				None => break,
 				Some(prev_chunk) => chunk = prev_chunk,
 			}
 		}
+	}
+
+	pub fn clear(&self) {
+		self.drop_chunks();
+		self.chunk.set(None);
+	}
+}
+
+impl Drop for Bump {
+	fn drop(&mut self) {
+		self.drop_chunks();
 	}
 }
 

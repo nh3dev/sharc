@@ -1,14 +1,10 @@
 use std::fmt::{self, Display};
 use colored::Colorize;
 
+use crate::bump::Box;
 use crate::span::Sp;
 
-type Box<T> = bump::Box<'static, T>;
-
-pub struct TypedAST {
-	pub bump:  bump::Bump,
-	pub nodes: Box<[Ty<Sp<crate::parser::ast::Node>>]>,
-}
+pub type TypedAST = Box<[Ty<Sp<crate::parser::ast::Node>>]>;
 
 pub struct Ty<T> {
 	pub elem: T,
@@ -64,7 +60,7 @@ impl fmt::Display for TypeKind {
 		}
 
 		match self {
-			TypeKind::ArrayLit(arr, size) => {
+			Self::ArrayLit(arr, size) => {
 				write!(f, "[")?;
 				for (i, item) in arr.iter().enumerate() {
 					write!(f, "{item}")?;
@@ -73,9 +69,9 @@ impl fmt::Display for TypeKind {
 				if let Some(size) = size { write!(f, "; {size}")?; }
 				write!(f, "]")
 			},
-			TypeKind::UnionLit(variants) => write!(f, "({})", join_tostring(&**variants, " | ")),
-			TypeKind::StructLit(fields)  => write!(f, "({})", join_tostring(&**fields, ", ")),
-			TypeKind::Fn(args, ret) => {
+			Self::UnionLit(variants) => write!(f, "({})", join_tostring(&**variants, " | ")),
+			Self::StructLit(fields)  => write!(f, "({})", join_tostring(&**fields, ", ")),
+			Self::Fn(args, ret) => {
 				write!(f, "{}(", "fn".purple())?;
 				for (i, arg) in args.iter().enumerate() {
 					write!(f, "{arg}")?;
@@ -85,15 +81,15 @@ impl fmt::Display for TypeKind {
 				Ok(())
 			},
 			k => write!(f, "{}", match k {
-				TypeKind::U(u)  => format!("u{u}"),
-				TypeKind::I(i)  => format!("i{i}"),
-				TypeKind::B(b)  => format!("b{b}"),
-				TypeKind::F(f)  => format!("f{f}"),
-				TypeKind::Usize => String::from("usize"),
-				TypeKind::Isize => String::from("isize"),
-				TypeKind::Any   => String::from("any"),
-				TypeKind::None  => String::from("none"),
-				TypeKind::Never => String::from("never"),
+				Self::U(u)  => format!("u{u}"),
+				Self::I(i)  => format!("i{i}"),
+				Self::B(b)  => format!("b{b}"),
+				Self::F(f)  => format!("f{f}"),
+				Self::Usize => String::from("usize"),
+				Self::Isize => String::from("isize"),
+				Self::Any   => String::from("any"),
+				Self::None  => String::from("none"),
+				Self::Never => String::from("never"),
 				_ => unreachable!(),
 			}.purple())
 		}

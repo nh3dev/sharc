@@ -1,15 +1,11 @@
 use std::fmt::{self, Display};
 use crate::span::Sp;
 use crate::bigint::IBig;
+use crate::bump::Box;
 
 use colored::Colorize;
 
-type Box<T> = bump::Box<'static, T>;
-
-pub struct AST {
-	pub nodes: Box<[Sp<Node>]>,
-	pub bump:  bump::Bump,
-}
+pub type AST = Box<[Sp<Node>]>;
 
 #[derive(Debug)]
 pub enum Node {
