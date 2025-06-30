@@ -35,14 +35,6 @@ impl Parser {
 		self.handler.log(report.file(self.filename));
 	}
 
-	fn alloc<T>(&self, elem: T) -> Box<T> {
-		crate::bump::THREAD_BUMP.with(|a| a.alloc(elem).into_static_unsafe())
-	}
-
-	fn alloc_vec<T>(&self, elems: Vec<T>) -> Box<[T]> {
-		crate::bump::THREAD_BUMP.with(|a| a.alloc_from_vec(elems).into_static_unsafe())
-	}
-
 	pub fn parse(tokens: Vec<Token>, filename: &'static str, handler: LogHandler) -> ast::AST {
 		if tokens.is_empty() { 
 			return Box::empty_slice();
@@ -78,7 +70,7 @@ impl Parser {
 		}
 
 		self.advance();
-		self.alloc_vec(exprs)
+		Box::from(exprs)
 	}
 
 	fn parse_stmt(&mut self) -> Result<Sp<Node>> {
@@ -140,7 +132,7 @@ impl Parser {
 					TokenKind::Star      => Node::Star,
 					TokenKind::Ampersand => Node::Amp,
 					_ => unreachable!(),
-				})(self.alloc(rhs)).span(token.span.extend(&span))
+				})(Box::new(rhs)).span(token.span.extend(&span))
 			},
 			TokenKind::LBracket => {
 				self.advance();
@@ -179,7 +171,7 @@ impl Parser {
 						.title(format!("Expected ']', got '{:?}'", self.current().kind))
 						.span(self.current().span))?;
 
-				Node::ArrayLit(self.alloc_vec(elems), size).span(token.span.extend(&self.current().span))
+				Node::ArrayLit(Box::from(elems), size).span(token.span.extend(&self.current().span))
 			},
 			TokenKind::LParen => {
 				enum Kind { Union, Struct, None }
@@ -210,7 +202,7 @@ impl Parser {
 						.title("Expected ')'")
 						.span(self.current().span))?;
 
-				let args = self.alloc_vec(args);
+				let args = Box::from(args);
 
 				match kind {
 					Kind::Struct | Kind::None => Node::StructLit(args),
@@ -251,8 +243,8 @@ impl Parser {
 							let span = lhs.span.extend(&token.span);
 
 							Node::FuncCall {
-								lhs:  self.alloc(lhs),
-								args: self.alloc_vec(args),
+								lhs:  Box::new(lhs),
+								args: Box::from(args),
 							}.span(span)
 						},
 						_ => todo!(),
@@ -276,7 +268,7 @@ impl Parser {
 						TokenKind::Equals    => Node::Store,
 						TokenKind::Colon     => Node::Field,
 						_ => unreachable!(),
-					}(self.alloc(lhs), self.alloc(rhs)).span(lspan.extend(&rspan));
+					}(Box::new(lhs), Box::new(rhs)).span(lspan.extend(&rspan));
 				},
 				_ => return ReportKind::UnexpectedToken
 					.title(format!("Expected operator, got {:?}", token.text))
@@ -330,7 +322,7 @@ impl Parser {
 							.span(token.span).as_err(),
 					}
 				}
-				self.alloc_vec(args)
+				Box::from(args)
 			},
 			_ => return ReportKind::UnexpectedToken
 				.title("Expected identifier")
@@ -343,7 +335,7 @@ impl Parser {
 			TokenKind::Colon => {
 				self.advance();
 				let expr = self.parse_expr(0)?;
-				Some(self.alloc(expr))
+				Some(Box::new(expr))
 			},
 			_ => None,
 		};
@@ -352,7 +344,7 @@ impl Parser {
 			TokenKind::Semicolon => None,
 			_ => {
 				let expr = self.parse_expr(0)?;
-				Some(self.alloc(expr))
+				Some(Box::new(expr))
 			},
 		};
 
@@ -385,7 +377,7 @@ impl Parser {
 
 		Ok(Node::Let {
 			ty, stat, gener,
-			expr:  self.alloc(expr), 
+			expr:  Box::new(expr), 
 			ident: lit,
 		}.span(span.extend(&self.current().span)))
 	}
@@ -477,7 +469,7 @@ impl Parser {
 		}
 		self.advance();
 
-		Ok(self.alloc_vec(out))
+		Ok(Box::from(out))
 	}
 }
 
