@@ -7,6 +7,7 @@
 	clippy::similar_names, clippy::cast_possible_truncation)]
 
 #![feature(if_let_guard)]
+#![feature(bigint_helper_methods)]
 
 use std::sync::atomic::Ordering;
 
