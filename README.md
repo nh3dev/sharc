@@ -18,12 +18,12 @@ I cant do it all by myself.. :/
 	- [ ] type inference to the moon
 	- [ ] generics into template generation?? (presumably this is checked here, mir just applies templates)
 - [ ] get the website back up 
-	- [ ] move shard to faf (also make a faf org)??
+	- [x] move shard to faf (also make a faf org)??
 	- [ ] update [sherbert](https://github.com/shard-org/sherbert) with new docs
 	- [ ] sherbert fix syntax highlighting (prob get docs first)
 - [ ] diff syntax for `<` since that conflicts with type generics `Foo<Bar>`
 - [ ] define move semantics. what's copy by default?
-- [ ] bully @interacsion into either making a borrow checker or shutting up about it :) (preferably option b)
+- [x] bully @interacsion into either making a borrow checker or shutting up about it :) (preferably option b)
 - [ ] integrate core traits as operator overloads
 - [ ] draft up shard docs:
 	- [ ] basics + typing
@@ -31,4 +31,4 @@ I cant do it all by myself.. :/
 - [ ] update nightly version to one with good features/stability
 - [ ] fix the bump allocator
 	- [ ] miri error (rust bs semantics are driving me crazy)
-	- [ ] possible double free on panic? (needs investigation)
+	- [x] possible double free on panic? (needs investigation)
