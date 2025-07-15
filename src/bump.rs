@@ -1,4 +1,5 @@
 use std::fmt::{self, Debug, Display};
+use std::ops::Deref;
 
 thread_local! {
 	pub static THREAD_BUMP: bump::Bump = bump::Bump::new();
@@ -60,6 +61,18 @@ impl<T: ?Sized + Display> Display for Box<T> {
 	}
 }
 
+impl<T: ?Sized + 'static + Clone> Clone for Box<T> {
+	fn clone(&self) -> Self {
+		Self(THREAD_BUMP.with(|bump| bump.alloc(self.0.deref().clone())).into_static_unsafe())
+	}
+}
+
+impl<T: Clone> Clone for Box<[T]> {
+	fn clone(&self) -> Self {
+		Self(THREAD_BUMP.with(|bump| bump.alloc_slice_clone(&self.0.deref())).into_static_unsafe())
+	}
+}
+
 impl<T: 'static> IntoIterator for Box<[T]> {
 	type Item = T;
 	type IntoIter = bump::BoxIter<'static, T>;
@@ -72,6 +85,7 @@ impl<T: 'static> IntoIterator for Box<[T]> {
 
 
 #[repr(transparent)]
+#[derive(Clone)]
 pub struct Rc<T: ?Sized + 'static>(bump::Rc<'static, T>);
 
 impl<T: 'static> Rc<T> {
