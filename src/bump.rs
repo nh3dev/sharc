@@ -42,11 +42,11 @@ impl<T: ?Sized + 'static> From<bump::Box<'static, T>> for Box<T> {
 
 impl<T: ?Sized + 'static> std::ops::Deref for Box<T> {
 	type Target = T;
-	fn deref(&self) -> &Self::Target { self.0.deref() }
+	fn deref(&self) -> &Self::Target { &self.0 }
 }
 
 impl<T: ?Sized + 'static> std::ops::DerefMut for Box<T> {
-	fn deref_mut(&mut self) -> &mut Self::Target { self.0.deref_mut() }
+	fn deref_mut(&mut self) -> &mut Self::Target { &mut self.0 }
 }
 
 impl<T: ?Sized + Debug> Debug for Box<T> {
@@ -61,7 +61,7 @@ impl<T: ?Sized + Display> Display for Box<T> {
 	}
 }
 
-impl<T: ?Sized + 'static + Clone> Clone for Box<T> {
+impl<T: 'static + Clone> Clone for Box<T> {
 	fn clone(&self) -> Self {
 		Self(THREAD_BUMP.with(|bump| bump.alloc(self.0.deref().clone())).into_static_unsafe())
 	}
@@ -77,9 +77,7 @@ impl<T: 'static> IntoIterator for Box<[T]> {
 	type Item = T;
 	type IntoIter = bump::BoxIter<'static, T>;
 
-	fn into_iter(self) -> Self::IntoIter {
-		self.0.into_iter()
-	}
+	fn into_iter(self) -> Self::IntoIter { self.0.into_iter() }
 }
 
 
@@ -103,7 +101,7 @@ impl<T: 'static> From<Vec<T>> for Rc<[T]> {
 
 impl<T: 'static> std::ops::Deref for Rc<T> {
 	type Target = T;
-	fn deref(&self) -> &Self::Target { self.0.deref() }
+	fn deref(&self) -> &Self::Target { &self.0 }
 }
 
 impl<T: Debug> Debug for Rc<T> {
