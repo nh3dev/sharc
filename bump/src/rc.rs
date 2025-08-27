@@ -51,6 +51,28 @@ impl crate::Bump {
 		data
 	} 
 
+	pub fn alloc_array_rc<'bump, const N: usize, T>(&self, val: [T; N]) -> Rc<'bump, [T; N]> {
+		let size = std::mem::size_of_val(&val) + std::mem::size_of::<RcInner<()>>();
+		let data = self.alloc_size::<RcInner<T>>(size) as *mut RcInner<T>;
+
+		unsafe {
+			(*data).count.set(0);
+			val.into_iter().enumerate().for_each(|(i, e)| std::ptr::write((&raw mut (*data).data).add(i), e));
+			Rc(&*std::ptr::from_raw_parts::<RcInner<[T; N]>>(data, ()))
+		}
+	}
+
+	pub fn alloc_sized_slice_rc<'bump, const N: usize, T>(&self, val: [T; N]) -> Rc<'bump, [T]> {
+		let size = std::mem::size_of_val(&val) + std::mem::size_of::<RcInner<()>>();
+		let data = self.alloc_size::<RcInner<T>>(size) as *mut RcInner<T>;
+
+		unsafe {
+			(*data).count.set(0);
+			val.into_iter().enumerate().for_each(|(i, e)| std::ptr::write((&raw mut (*data).data).add(i), e));
+			Rc(&*std::ptr::from_raw_parts::<RcInner<[T]>>(data, N))
+		}
+	}
+
 	#[inline]
 	pub fn alloc_slice_rc<'bump, T: Copy>(&self, val: &[T]) -> Rc<'bump, [T]> {
 		self.alloc_slice_raw_rc(val)
@@ -131,4 +153,36 @@ impl<T: ?Sized> fmt::Pointer for Rc<'_, T> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		fmt::Pointer::fmt(&(&self.0.data as *const T), f)
 	}
+}
+
+impl<T: ?Sized> AsRef<T> for Rc<'_, T> {
+	#[inline]
+	fn as_ref(&self) -> &T { &self.0.data }
+}
+
+impl<T: ?Sized> std::borrow::Borrow<T> for Rc<'_, T> {
+	#[inline]
+	fn borrow(&self) -> &T { &self.0.data }
+}
+
+impl<T: PartialEq + ?Sized> PartialEq for Rc<'_, T> {
+	#[inline]
+	fn eq(&self, other: &Self) -> bool { **self == **other }
+}
+
+impl<T: Eq + ?Sized> Eq for Rc<'_, T> {}
+
+impl<T: PartialOrd + ?Sized> PartialOrd for Rc<'_, T> {
+	#[inline]
+	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> { (**self).partial_cmp(&**other) }
+}
+
+impl<T: Ord + ?Sized> Ord for Rc<'_, T> {
+	#[inline]
+	fn cmp(&self, other: &Self) -> std::cmp::Ordering { (**self).cmp(&**other) }
+}
+
+impl<T: std::hash::Hash + ?Sized> std::hash::Hash for Rc<'_, T> {
+	#[inline]
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) { (**self).hash(state) }
 }

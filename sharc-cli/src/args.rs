@@ -3,9 +3,9 @@ use std::process::exit;
 
 macro_rules! error {
 	($($ident:tt)*) => {{
-		eprintln!("{}", crate::report::ReportKind::ArgumentParserError
+		eprintln!("{}", crate::logger::Report(sharc::ReportKind::ArgumentParserError
 			.title(format!($($ident)*))
-			.note("Run with \x1b[1m--help\x1b[0m for usage information"));
+			.note("Run with \x1b[1m--help\x1b[0m for usage information")));
 		exit(1);
 	}};
 }

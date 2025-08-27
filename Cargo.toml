@@ -1,22 +1,28 @@
-[package]
-name        = "sharc"
+[workspace]
+resolver = "3"
+members = [
+	"sharc",
+	"sharc-cli",
+	"bump",
+	"colored",
+]
+
+[workspace.package]
 version     = "0.1.0"
 edition     = "2024"
-description = "Compiler for the Shard Programming Language."
-license     = "0BSD"
+
 repository  = "https://github.com/shard-org/sharc"
 keywords    = ["shard", "compiler", "language", "qbe"]
 categories  = ["compiler", "development-tools"]
 
-[dependencies]
-colored  = { path = "colored"  }
-progress = { path = "progress" }
-bump     = { path = "bump"     }
-# bumpalo = { version = "3.17", features = ["collections", "boxed"] } # eventually have our own??
+description = "Compiler for the Shard Programming Language."
+license     = "0BSD"
+
+[workspace.dependencies]
+bump = { path = "bump" }
+colored = { path = "colored" }
 
 [profile.release]
-lto = "fat"
+lto = "thin"
 panic = "abort"
 opt-level = "s"
-debug = false
-codegen-units = 1

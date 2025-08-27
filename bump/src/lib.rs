@@ -1,11 +1,13 @@
 #![feature(ptr_metadata)]
 #![feature(cell_update)]
+#![feature(str_from_raw_parts)]
 
 use std::cell::Cell;
 use std::ptr::NonNull;
 
 mod boxed;
 mod rc;
+mod r#ref;
 
 pub use boxed::{Box, BoxIter};
 pub use rc::Rc;
@@ -77,7 +79,7 @@ impl Bump {
 	const DEFAULT_PAGE_SIZE: usize = 4096;
 
 	#[inline]
-	pub fn new() -> Self {
+	pub const fn new() -> Self {
 		Bump {
 			chunk:     Cell::new(None),
 			page_size: Cell::new(Self::DEFAULT_PAGE_SIZE),

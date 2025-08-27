@@ -17,6 +17,7 @@ pub enum TokenKind {
 	KWRet,
 	KWMut,
 	KWMove,
+	KWAs,
 
 	FloatLiteral,
 
@@ -74,13 +75,13 @@ pub enum TokenKind {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct Token {
+pub struct Token<'src> {
 	pub kind: TokenKind,
 	pub span: Span,
-	pub text: &'static str,
+	pub text: &'src str,
 }
 
-impl std::fmt::Display for Token {
+impl std::fmt::Display for Token<'_> {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
 		write!(f, "Token({:?}, {}", self.kind, 
 			format!("{}-{}", self.span.start, self.span.end).bright_black())?;
@@ -93,7 +94,7 @@ impl TokenKind {
 	pub fn pbind_power(self) -> Option<NonZeroU8> {
 		unsafe {
 			Some(NonZeroU8::new_unchecked(match self {
-				Self::Minus | Self::Star | Self::KWMut | Self::KWMove => 5,
+				Self::Minus | Self::Ampersand | Self::Star | Self::KWMut | Self::KWMove => 5,
 				_ => return None,
 			}))
 		}
@@ -102,6 +103,7 @@ impl TokenKind {
 	pub fn ibind_power(self) -> Option<NonZeroU8> {
 		unsafe {
 			Some(NonZeroU8::new_unchecked(match self {
+				Self::KWAs => 10,
 				Self::Star | Self::Slash | Self::Percent => 3,
 				Self::Plus | Self::Minus => 2,
 				Self::Equals => 1,

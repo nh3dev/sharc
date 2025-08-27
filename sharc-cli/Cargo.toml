@@ -1,0 +1,16 @@
+[package]
+name    = "sharc-cli"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bump.workspace    = true
+colored.workspace = true
+sharc             = { path = "../sharc" }
+
+[features]
+backtrace = ["sharc/backtrace"]
+
+[[bin]]
+name = "sharc"
+path = "src/main.rs"

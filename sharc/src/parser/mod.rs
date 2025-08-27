@@ -1,22 +1,22 @@
 use crate::lexer::{Token, TokenKind};
-use crate::report::{LogHandler, ReportKind, Result};
+use crate::report::{ReportKind, Result, Report};
 use crate::span::{Spannable, Sp};
 use crate::bigint::IBig;
-use crate::bump::Box;
+use bump::Bump;
 
 pub mod ast;
 use ast::{Node, Primitive, LambdaArg};
 
-pub struct Parser {
-	tokens:   Vec<Token>,
+pub struct Parser<'src, 'r> {
+	tokens:   Vec<Token<'src>>,
 	index:    usize,
-	handler:  LogHandler,
-	filename: &'static str,
+	reporter: &'r mut crate::Reporter<'src>,
+	bump:     Bump,
 }
 
-impl Parser {
+impl<'src, 'r> Parser<'src, 'r> {
 	#[inline]
-	fn current(&self) -> Token {
+	fn current(&self) -> Token<'src> {
 		self.tokens[self.index]
 	}
 
@@ -31,31 +31,28 @@ impl Parser {
 	}
 
 	#[inline]
-	fn log(&self, report: crate::report::Report) {
-		self.handler.log(report.file(self.filename));
+	fn log(&mut self, report: Report<'src>) {
+		self.reporter.nom(report);
 	}
 
-	pub fn parse(tokens: Vec<Token>, filename: &'static str, handler: LogHandler) -> ast::AST {
+	pub fn parse(tokens: Vec<Token<'src>>, reporter: &'r mut crate::Reporter<'src>) -> (Vec<Sp<Node<'src>>>, Bump) {
 		if tokens.is_empty() { 
-			return Box::empty_slice();
+			return (Vec::new(), Bump::new());
 		}
 
-		let mut parser = Self {
-			tokens, handler, filename,
-			index: 0,
-		};
+		let mut parser = Self { reporter, bump: Bump::new(), tokens, index: 0 };
 
-		parser.parse_block(true)
+		(parser.parse_block(true), parser.bump)
 	}
 
-	fn parse_block(&mut self, global: bool) -> Box<[Sp<Node>]> {
+	fn parse_block(&mut self, global: bool) -> Vec<Sp<Node<'src>>> {
 		let mut exprs = Vec::new();
 		let until = if global { TokenKind::EOF } else { TokenKind::RBrace };
 
 		while self.current().kind != until {
 			match self.parse_stmt() {
 				Ok(expr) => exprs.push(expr),
-				// FIXME: this behaviour is causing headaches... find someone who knows how to do this shit
+				// FIXME: this behaviour is causing headaches.. find someone who knows how to do this shit
 				Err(report) => {
 					self.log(*report);
 
@@ -70,10 +67,10 @@ impl Parser {
 		}
 
 		self.advance();
-		Box::from(exprs)
+		exprs
 	}
 
-	fn parse_stmt(&mut self) -> Result<Sp<Node>> {
+	fn parse_stmt(&mut self) -> Result<'src, Sp<Node<'src>>> {
 		let token = self.current();
 		let stmt = match token.kind {
 			TokenKind::KWLet    => self.parse_assign(false)?,
@@ -86,7 +83,7 @@ impl Parser {
 		Ok(stmt)
 	}
 
-	fn parse_expr(&mut self, mbp: u8) -> Result<Sp<Node>> {
+	fn parse_expr(&mut self, mbp: u8) -> Result<'src, Sp<Node<'src>>> {
 		let token = self.current();
 
 		let mut lhs = match token.kind {
@@ -95,7 +92,7 @@ impl Parser {
 				let body = self.parse_block(false);
 				let span = body.last().map_or(token.span, |n| token.span.extend(&n.span));
 
-				Node::Block(body).span(span)
+				Node::Block(self.bump.alloc_from_vec(body)).span(span)
 			},
 			TokenKind::Pipe | TokenKind::PipePipe => self.parse_lambda()?,
 			TokenKind::KWExtern | TokenKind::KWExport => {
@@ -107,7 +104,7 @@ impl Parser {
 						.span(self.current().span).as_err();
 				}
 
-				let sym = parse_str(self.current())?.span(self.current().span);
+				let sym = self.bump.alloc_str(&parse_str(self.current())?).span(self.current().span);
 				self.advance();
 				let mut lam = self.parse_lambda()?;
 
@@ -132,7 +129,7 @@ impl Parser {
 					TokenKind::Star      => Node::Star,
 					TokenKind::Ampersand => Node::Amp,
 					_ => unreachable!(),
-				})(Box::new(rhs)).span(token.span.extend(&span))
+				})(self.bump.alloc(rhs)).span(token.span.extend(&span))
 			},
 			TokenKind::LBracket => {
 				self.advance();
@@ -156,7 +153,7 @@ impl Parser {
 								.span(self.current().span).as_err();
 						};
 
-						Some((&size).try_into().map_err(|_| ReportKind::InvalidNumber
+						Some(size.try_as_u64().ok_or_else(|| ReportKind::InvalidNumber
 							.title("intager literal too large for array size")
 							.label("max size is 2^64-1")
 							.span(self.current().span))?)
@@ -171,7 +168,8 @@ impl Parser {
 						.title(format!("Expected ']', got '{:?}'", self.current().kind))
 						.span(self.current().span))?;
 
-				Node::ArrayLit(Box::from(elems), size).span(token.span.extend(&self.current().span))
+				Node::ArrayLit(self.bump.alloc_from_vec(elems), size)
+					.span(token.span.extend(&self.current().span))
 			},
 			TokenKind::LParen => {
 				enum Kind { Union, Struct, None }
@@ -202,7 +200,7 @@ impl Parser {
 						.title("Expected ')'")
 						.span(self.current().span))?;
 
-				let args = Box::from(args);
+				let args = self.bump.alloc_from_vec(args);
 
 				match kind {
 					Kind::Struct | Kind::None => Node::StructLit(args),
@@ -243,8 +241,8 @@ impl Parser {
 							let span = lhs.span.extend(&token.span);
 
 							Node::FuncCall {
-								lhs:  Box::new(lhs),
-								args: Box::from(args),
+								lhs:  self.bump.alloc(lhs),
+								args: self.bump.alloc_from_vec(args),
 							}.span(span)
 						},
 						_ => todo!(),
@@ -265,10 +263,15 @@ impl Parser {
 						TokenKind::Star      => Node::Mul,
 						TokenKind::Slash     => Node::Div,
 						TokenKind::Percent   => Node::Mod,
-						TokenKind::Equals    => Node::Store,
 						TokenKind::Colon     => Node::Field,
+						TokenKind::KWAs      => Node::As,
+						TokenKind::Equals    => {
+							lhs = Node::Store(self.bump.alloc_box(lhs), self.bump.alloc_box(rhs))
+								.span(lspan.extend(&rspan));
+							continue;
+						},
 						_ => unreachable!(),
-					}(Box::new(lhs), Box::new(rhs)).span(lspan.extend(&rspan));
+					}(self.bump.alloc(lhs), self.bump.alloc(rhs)).span(lspan.extend(&rspan));
 				},
 				_ => return ReportKind::UnexpectedToken
 					.title(format!("Expected operator, got {:?}", token.text))
@@ -279,11 +282,11 @@ impl Parser {
 		Ok(lhs)
 	}
 
-	fn parse_lambda(&mut self) -> Result<Sp<Node>> {
+	fn parse_lambda(&mut self) -> Result<'src, Sp<Node<'src>>> {
 		let start = self.current().span;
 
 		let args = match self.current().kind {
-			TokenKind::PipePipe => Box::empty_slice(),
+			TokenKind::PipePipe => &[][..],
 			TokenKind::Pipe => {
 				self.advance();
 				let mut args = Vec::new();
@@ -301,7 +304,7 @@ impl Parser {
 									self.advance();
 									let expr = self.parse_expr(0)?;
 									match expr.elem {
-										Node::Store(lhs, rhs) => (Some(Box::into_inner(lhs)), Some(Box::into_inner(rhs))),
+										Node::Store(lhs, rhs) => (Some(lhs.into_inner()), Some(rhs.into_inner())),
 										_ => (Some(expr), None),
 									}
 								},
@@ -322,7 +325,7 @@ impl Parser {
 							.span(token.span).as_err(),
 					}
 				}
-				Box::from(args)
+				self.bump.alloc_from_vec(args)
 			},
 			_ => return ReportKind::UnexpectedToken
 				.title("Expected identifier")
@@ -335,7 +338,7 @@ impl Parser {
 			TokenKind::Colon => {
 				self.advance();
 				let expr = self.parse_expr(0)?;
-				Some(Box::new(expr))
+				Some(self.bump.alloc(expr))
 			},
 			_ => None,
 		};
@@ -344,7 +347,7 @@ impl Parser {
 			TokenKind::Semicolon => None,
 			_ => {
 				let expr = self.parse_expr(0)?;
-				Some(Box::new(expr))
+				Some(self.bump.alloc(expr))
 			},
 		};
 
@@ -352,7 +355,7 @@ impl Parser {
 			.span(start.extend(&self.current().span)))
 	}
 
-	fn parse_assign(&mut self, stat: bool) -> Result<Sp<Node>> {
+	fn parse_assign(&mut self, stat: bool) -> Result<'src, Sp<Node<'src>>> {
 		self.advance();
 		let Sp { elem: Node::Ident { lit, gener }, span } = self.parse_ident()?
 			else { unreachable!() };
@@ -366,7 +369,7 @@ impl Parser {
 				self.advance();
 				let expr = self.parse_expr(0)?;
 				match expr.elem {
-					Node::Store(lhs, rhs) => (Some(lhs), Box::into_inner(rhs)),
+					Node::Store(lhs, rhs) => (Some(lhs), rhs.into_inner()),
 					_ => (None, expr)
 				}
 			},
@@ -377,12 +380,12 @@ impl Parser {
 
 		Ok(Node::Let {
 			ty, stat, gener,
-			expr:  Box::new(expr), 
+			expr:  self.bump.alloc(expr), 
 			ident: lit,
 		}.span(span.extend(&self.current().span)))
 	}
 
-	fn parse_atom(&mut self) -> Result<Sp<Node>> {
+	fn parse_atom(&mut self) -> Result<'src, Sp<Node<'src>>> {
 		let token = self.current();
 		self.advance();
 
@@ -420,20 +423,20 @@ impl Parser {
 					return self.parse_ident();
 				},
 			}).span(token.span),
-			TokenKind::DecimalIntLiteral => Node::IntLit(token.text.parse::<IBig>()
+			TokenKind::DecimalIntLiteral => Node::IntLit(IBig::from_str(&self.bump, token.text)
 				.map_err(|e| ReportKind::InvalidNumber
 					.title(format!("Invalid integer literal: {e}"))
 					.span(token.span))?)
 				.span(token.span),
 			TokenKind::StringLiteral =>
-				Node::StrLit(parse_str(token)?).span(token.span),
+				Node::StrLit(self.bump.alloc_str(&parse_str(token)?)).span(token.span),
 			_ => return ReportKind::UnexpectedToken
 				.title(format!("Expected expression, got {:?}", token.text))
 				.span(token.span).as_err(),
 		})
 	}
 
-	fn parse_ident(&mut self) -> Result<Sp<Node>> {
+	fn parse_ident(&mut self) -> Result<'src, Sp<Node<'src>>> {
 		let token = self.current();
 		self.advance_if(|t| matches!(t, TokenKind::Identifier)).then_some(())
 			.ok_or_else(|| ReportKind::UnexpectedToken
@@ -443,7 +446,7 @@ impl Parser {
 		// FIXME: do something about the whole ident<20 vs ident<20>
 		let gener = match self.current().kind {
 			TokenKind::LessThan => self.parse_generics()?,
-			_ => Box::empty_slice(),
+			_ => &[][..],
 		};
 
 		let span = gener.last().map_or(token.span, |g| g.span.extend(&token.span));
@@ -451,7 +454,7 @@ impl Parser {
 		Ok(Node::Ident { lit: token.text.span(token.span), gener }.span(span))
 	}
 
-	fn parse_generics(&mut self) -> Result<Box<[Sp<Node>]>> {
+	fn parse_generics(&mut self) -> Result<'src, &'src [Sp<Node<'src>>]> {
 		let token = self.current();
 		self.advance_if(|t| matches!(t, TokenKind::LessThan)).then_some(())
 			.ok_or_else(|| ReportKind::UnexpectedToken
@@ -469,7 +472,7 @@ impl Parser {
 		}
 		self.advance();
 
-		Ok(Box::from(out))
+		Ok(self.bump.alloc_from_vec(out))
 	}
 }
 

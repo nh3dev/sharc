@@ -1,0 +1,11 @@
+[package]
+name    = "sharc"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bump.workspace    = true
+colored.workspace = true
+
+[features]
+backtrace = []

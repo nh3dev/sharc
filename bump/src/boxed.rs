@@ -3,7 +3,7 @@ use std::mem::ManuallyDrop;
 
 impl crate::Bump {
 	#[inline]
-	pub fn alloc<'bump, T>(&self, val: T) -> Box<'bump, T> {
+	pub fn alloc_box<'bump, T>(&self, val: T) -> Box<'bump, T> {
 		let data = self.alloc_size::<T>(std::mem::size_of::<T>()) as *mut T;
 
 		unsafe { std::ptr::write(data, val); }
@@ -12,7 +12,7 @@ impl crate::Bump {
 	}
 
 	#[inline]
-	fn alloc_slice_raw<'bump, T>(&self, val: &[T]) -> Box<'bump, [T]> {
+	fn alloc_slice_raw_box<'bump, T>(&self, val: &[T]) -> Box<'bump, [T]> {
 		if val.is_empty() { return Box::empty_slice() }
 		let data = self.alloc_size::<T>(std::mem::size_of_val(val)) as *mut T;
 
@@ -23,9 +23,9 @@ impl crate::Bump {
 	}
 
 	#[inline]
-	pub fn alloc_from_vec<'bump, T>(&self, mut val: Vec<T>) -> Box<'bump, [T]> {
+	pub fn alloc_from_vec_box<'bump, T>(&self, mut val: Vec<T>) -> Box<'bump, [T]> {
 		if val.is_empty() { return Box::empty_slice() }
-		let data = self.alloc_slice_raw(&val);
+		let data = self.alloc_slice_raw_box(&val);
 
 		let layout = std::alloc::Layout::array::<T>(val.capacity()).unwrap();
 		unsafe {
@@ -37,13 +37,31 @@ impl crate::Bump {
 		data
 	}
 
-	#[inline]
-	pub fn alloc_slice<'bump, T: Copy>(&self, val: &[T]) -> Box<'bump, [T]> {
-		self.alloc_slice_raw(val)
+	pub fn alloc_array_box<'bump, const N: usize, T>(&self, val: [T; N]) -> Box<'bump, [T; N]> {
+		let data = self.alloc_size::<T>(std::mem::size_of_val(&val)) as *mut T;
+
+		unsafe {
+			val.into_iter().enumerate().for_each(|(i, e)| std::ptr::write(data.add(i), e));
+			Box(std::slice::from_raw_parts_mut(data, N).try_into().unwrap())
+		}
+	}
+
+	pub fn alloc_sized_slice_box<'bump, const N: usize, T>(&self, val: [T; N]) -> Box<'bump, [T]> {
+		let data = self.alloc_size::<T>(std::mem::size_of_val(&val)) as *mut T;
+
+		unsafe {
+			val.into_iter().enumerate().for_each(|(i, e)| std::ptr::write(data.add(i), e));
+			Box(std::slice::from_raw_parts_mut(data, N))
+		}
 	}
 
 	#[inline]
-	pub fn alloc_slice_clone<'bump, T: Clone>(&self, val: &[T]) -> Box<'bump, [T]> {
+	pub fn alloc_slice_box<'bump, T: Copy>(&self, val: &[T]) -> Box<'bump, [T]> {
+		self.alloc_slice_raw_box(val)
+	}
+
+	#[inline]
+	pub fn alloc_slice_clone_box<'bump, T: Clone>(&self, val: &[T]) -> Box<'bump, [T]> {
 		let data = self.alloc_size::<T>(std::mem::size_of_val(val)) as *mut T;
 
 		unsafe {
@@ -52,7 +70,7 @@ impl crate::Bump {
 		}
 	}
 
-	pub fn alloc_from_iter<'bump, T>(&self, iter: impl ExactSizeIterator<Item = T>) -> Box<'bump, [T]> {
+	pub fn alloc_from_iter_box<'bump, T>(&self, iter: impl ExactSizeIterator<Item = T>) -> Box<'bump, [T]> {
 		let len = iter.len();
 		let data = self.alloc_size::<T>(len * std::mem::size_of::<T>()) as *mut T;
 
@@ -67,7 +85,7 @@ impl crate::Bump {
 #[repr(transparent)]
 pub struct Box<'bump, T: ?Sized>(pub(crate) &'bump mut T);
 
-impl<'a, T: ?Sized> Box<'a, T> {
+impl<T: ?Sized> Box<'_, T> {
 	// this is uhhhh unsafe buuut only if the allocator gets dropped before the box
 	// which shouldnt happen in the usual case
 	#[inline]
@@ -128,7 +146,7 @@ impl<T> Iterator for BoxIter<'_, T> {
 	}
 }
 
-impl<'a, T> ExactSizeIterator for BoxIter<'a, T> {
+impl<T> ExactSizeIterator for BoxIter<'_, T> {
 	#[inline]
 	fn len(&self) -> usize {
 		self.data.len() - self.index
@@ -138,7 +156,7 @@ impl<'a, T> ExactSizeIterator for BoxIter<'a, T> {
 impl<T> Drop for BoxIter<'_, T> {
 	#[inline]
 	fn drop(&mut self) {
-		while let Some(_) = self.next() {}
+		for _ in self {}
 	}
 }
 
@@ -187,4 +205,41 @@ impl<T: ?Sized> fmt::Pointer for Box<'_, T> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		fmt::Pointer::fmt(&(self.0 as *const T), f)
 	}
+}
+
+impl<T: ?Sized> AsRef<T> for Box<'_, T> {
+	#[inline]
+	fn as_ref(&self) -> &T { self }
+}
+
+impl<T: ?Sized> AsMut<T> for Box<'_, T> {
+	#[inline]
+	fn as_mut(&mut self) -> &mut T { self }
+}
+
+impl<T: ?Sized> std::borrow::Borrow<T> for Box<'_, T> {
+	#[inline]
+	fn borrow(&self) -> &T { self }
+}
+
+impl<T: PartialEq + ?Sized> PartialEq for Box<'_, T> {
+	#[inline]
+	fn eq(&self, other: &Self) -> bool { **self == **other }
+}
+
+impl<T: Eq + ?Sized> Eq for Box<'_, T> {}
+
+impl<T: PartialOrd + ?Sized> PartialOrd for Box<'_, T> {
+	#[inline]
+	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> { (**self).partial_cmp(&**other) }
+}
+
+impl<T: Ord + ?Sized> Ord for Box<'_, T> {
+	#[inline]
+	fn cmp(&self, other: &Self) -> std::cmp::Ordering { (**self).cmp(&**other) }
+}
+
+impl<T: std::hash::Hash + ?Sized> std::hash::Hash for Box<'_, T> {
+	#[inline]
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) { (**self).hash(state) }
 }

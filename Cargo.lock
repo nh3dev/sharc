@@ -11,14 +11,18 @@ name = "colored"
 version = "3.0.0"
 
 [[package]]
-name = "progress"
-version = "0.1.1"
-
-[[package]]
 name = "sharc"
 version = "0.1.0"
 dependencies = [
  "bump",
  "colored",
- "progress",
+]
+
+[[package]]
+name = "sharc-cli"
+version = "0.1.0"
+dependencies = [
+ "bump",
+ "colored",
+ "sharc",
 ]
