@@ -1,4 +1,5 @@
 use std::fmt::{self, Display};
+use std::sync::LazyLock;
 use colored::Colorize;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -9,7 +10,10 @@ pub struct Span {
 
 impl Display for Span {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "{}", format!("{}-{}", self.start, self.end).bright_black())
+		write!(f, "{}", match self.start == self.end {
+			true  => format!("{}", self.start),
+			false => format!("{}-{}", self.start, self.end),
+		}.bright_black())
 	}
 }
 
@@ -64,9 +68,10 @@ impl<T> Spannable for T {}
 
 impl<T: Display> Display for Sp<T> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		match std::env::var("NO_SPAN") {
-			Ok(_)  => write!(f, "{}", self.elem),
-			Err(_) => write!(f, "{} {}", self.span, self.elem)
+		static NO_SPAN: LazyLock<bool> = LazyLock::new(|| std::env::var("NO_SPAN").is_ok());
+		match *NO_SPAN {
+			true  => write!(f, "{}", self.elem),
+			false => write!(f, "{} {}", self.span, self.elem)
 		}
 	}
 }
