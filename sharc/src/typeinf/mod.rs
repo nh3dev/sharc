@@ -9,15 +9,17 @@ use bump::Bump;
 pub mod hir;
 use hir::{BuiltinKind, TypeInf as _, Ty, Type, TypeKind, Node as TyNode, LambdaArg as TyLambdaArg};
 
-pub struct TypeInf<'src, 'r> {
+pub struct TypeInf<'src, 'bo, 'b, 'r> {
 	reporter: &'r mut crate::Reporter<'src>,
 	bump:     Bump,
+	bump_lt:  std::marker::PhantomData<&'b Bump>,
+	bumpo_lt: std::marker::PhantomData<&'bo Bump>,
 
-	scope_stack: Vec<HashMap<&'src str, &'src Type<'src>>>,
-	ty_type:     &'src Type<'src>,
+	scope_stack: Vec<HashMap<&'src str, &'b Type<'src, 'b>>>,
+	ty_type:     &'src Type<'src, 'b>,
 }
 
-impl<'src, 'r> TypeInf<'src, 'r> {
+impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 	#[inline]
 	fn log(&mut self, report: Report<'src>) {
 		self.reporter.nom(report);
@@ -31,11 +33,13 @@ impl<'src, 'r> TypeInf<'src, 'r> {
 		self.scope_stack.pop();
 	}
 
-	pub fn infer((ast, ast_bump): (Vec<Sp<Node<'src>>>, Bump), reporter: &'r mut crate::Reporter<'src>) -> (Vec<Ty<'src, Sp<TyNode<'src>>>>, Bump) {
+	pub fn infer((ast, ast_bump): (Vec<Sp<Node<'src, 'bo>>>, Bump), reporter: &'r mut crate::Reporter<'src>) -> (Vec<Ty<'src, 'b, Sp<TyNode<'src, 'b>>>>, Bump) {
 		let bump = Bump::new();
 		let mut inf = Self { 
 			ty_type: bump.alloc(Type::new(TypeKind::Type)),
 			reporter, bump, 
+			bump_lt:  std::marker::PhantomData,
+			bumpo_lt: std::marker::PhantomData,
 			scope_stack: vec![HashMap::new()] };
 
 		let hir = ast.into_iter().filter_map(
@@ -48,7 +52,7 @@ impl<'src, 'r> TypeInf<'src, 'r> {
 		(hir, inf.bump)
 	}
 
-	pub fn resolve_type(&mut self, node: &Ty<'src, Sp<TyNode<'src>>>) -> Result<'src, &'src Type<'src>> {
+	pub fn resolve_type(&mut self, node: &Ty<'src, 'b, Sp<TyNode<'src, 'b>>>) -> Result<'src, &'b Type<'src, 'b>> {
 		if !matches!(node.ty.kind, TypeKind::Type) {
 			return ReportKind::UnexpectedType
 				.title(format!("expected value of type `{}`, found `{}`", TypeKind::Type, node.ty.kind))
@@ -63,21 +67,21 @@ impl<'src, 'r> TypeInf<'src, 'r> {
 		}
 	}
 
-	pub fn try_const_eval(node: Sp<Node<'src>>) -> Option<Ty<'src, Sp<TyNode<'src>>>> {
+	pub fn try_const_eval(node: Sp<Node<'src, 'bo>>) -> Option<Ty<'src, 'b, Sp<TyNode<'src, 'b>>>> {
 		todo!()
 	}
 
-	pub fn resolve_type_ident(ident: &str) -> Option<&'src Type<'src>> {
+	pub fn resolve_type_ident(ident: &str) -> Option<&'b Type<'src, 'b>> {
 		todo!()
 	}
 
 	pub fn resolve_trait(
 		&self,
-		ty:    &'src Type<'src>, 
-		gener: &'src [&'src Type<'src>], 
-		path:  &'src [&'src str],
+		ty:    &'b Type<'src, 'b>, 
+		gener: &'b [&'b Type<'src, 'b>], 
+		path:  &'b [&'src str], // aaaaaaa
 		ident: &Sp<&'src str>,
-	) -> Result<'src, Option<&'src [&'src Type<'src>]>> {
+	) -> Result<'src, Option<&'b [&'b Type<'src, 'b>]>> {
 		if path.get(0).is_some_and(|&p| p == "core") {
 			return self.resolve_core_trait(ty, gener, ident);
 		}
@@ -87,10 +91,10 @@ impl<'src, 'r> TypeInf<'src, 'r> {
 
 	pub fn resolve_core_trait(
 		&self,
-		ty:    &'src Type<'src>, 
-		gener: &'src [&'src Type<'src>], 
+		ty:    &'b Type<'src, 'b>, 
+		gener: &'b [&'b Type<'src, 'b>], 
 		ident: &Sp<&'src str>,
-	) -> Result<'src, Option<&'src [&'src Type<'src>]>> {
+	) -> Result<'src, Option<&'b [&'b Type<'src, 'b>]>> {
 		Ok(Some(match ident.elem {
 			"Add" => {
 				if !(1..=2).contains(&gener.len()) {
@@ -113,7 +117,7 @@ impl<'src, 'r> TypeInf<'src, 'r> {
 		}))
 	}
 
-	pub fn infer_node(&mut self, node: &Sp<Node<'src>>) -> Result<'src, Ty<'src, Sp<TyNode<'src>>>> {
+	pub fn infer_node(&mut self, node: &Sp<Node<'src, 'bo>>) -> Result<'src, Ty<'src, 'b, Sp<TyNode<'src, 'b>>>> {
 		Ok(match &node.elem {
 			Node::Primitive(t) => {
 				let ty = match t {

@@ -11,9 +11,11 @@ use colored::Colorize;
 
 use bump::Bump;
 
-pub struct Analyzer<'r, 'src, 'b> {
+pub struct Analyzer<'r, 'src, 'bo, 'b> {
 	reporter: &'r mut crate::Reporter<'src>,
 	bump:     Bump,
+	bump_lt:  std::marker::PhantomData<&'b Bump>,
+	bumpo_lt: std::marker::PhantomData<&'bo Bump>,
 	scope:    Vec<Scope<'b>>,
 	// symbols:  HashMap<ValId, String>,
 }
@@ -24,9 +26,47 @@ struct Scope<'b> {
 	locals: Vec<(ValId, String, Type<'b>)>, 
 }
 
-impl<'r, 'src, 'b> Analyzer<'r, 'src, 'b> {
-	pub fn process((hir, hir_bump): (Vec<hir::Ty<'src, Sp<hir::Node<'src>>>>, Bump), reporter: &'r mut crate::Reporter<'src>) -> (Vec<Node<'b>>, Bump) {
-		todo!()
+impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
+	pub fn process((hir, hir_bump): (Vec<hir::Ty<'src, 'bo, Sp<hir::Node<'src, 'bo>>>>, Bump), reporter: &'r mut crate::Reporter<'src>) -> (Vec<Node<'b>>, Bump) {
+		let mut analyzer = Self { 
+			reporter, 
+			bump: Bump::new(), 
+			bump_lt:  std::marker::PhantomData,
+			bumpo_lt: std::marker::PhantomData,
+			scope: vec![Scope::default()], 
+			// symbols: HashMap::new(),
+		};
+
+		let hir_len = hir.len();
+		let mir = hir.into_iter().enumerate().filter_map(
+			|(i, node)| analyzer.process_node(i == hir_len - 1, &node).map_or_else(
+				|l| { analyzer.reporter.nom(*l); None }, 
+				|n| Some(n.into_iter())))
+			.flatten()
+			.collect::<Vec<_>>();
+
+		std::mem::drop(hir_bump);
+		(mir, analyzer.bump)
+	}
+
+	pub fn process_node(&mut self, ret: bool, node: &hir::Ty<'src, 'bo, Sp<hir::Node<'src, 'bo>>>) -> Result<'src, Vec<Node<'b>>> {
+		let (var, nodes, ty) = match &node.elem.elem {
+			hir::Node::Builtin { kind, gener, vals } => {
+				todo!();
+				(Var::None, Vec::new(), self.bump.alloc(self.process_type(node.ty)))
+			},
+			_ => todo!("{}", node),
+		};
+
+		if ret {
+			nodes.push(Node::Ret(var, ty));
+		}
+
+		Ok(nodes)
+	}
+
+	pub fn process_type(&self, ty: &'bo hir::Type<'src, 'bo>) -> Type<'b> {
+		todo!();
 	}
 }
 

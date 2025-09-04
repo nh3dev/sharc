@@ -7,14 +7,15 @@ use bump::Bump;
 pub mod ast;
 use ast::{Node, Primitive, LambdaArg};
 
-pub struct Parser<'src, 'r> {
+pub struct Parser<'src, 'b, 'r> {
 	tokens:   Vec<Token<'src>>,
 	index:    usize,
 	reporter: &'r mut crate::Reporter<'src>,
 	bump:     Bump,
+	bump_lt:  std::marker::PhantomData<&'b Bump>,
 }
 
-impl<'src, 'r> Parser<'src, 'r> {
+impl<'src, 'b, 'r> Parser<'src, 'b, 'r> {
 	#[inline]
 	fn current(&self) -> Token<'src> {
 		self.tokens[self.index]
@@ -35,17 +36,17 @@ impl<'src, 'r> Parser<'src, 'r> {
 		self.reporter.nom(report);
 	}
 
-	pub fn parse(tokens: Vec<Token<'src>>, reporter: &'r mut crate::Reporter<'src>) -> (Vec<Sp<Node<'src>>>, Bump) {
+	pub fn parse(tokens: Vec<Token<'src>>, reporter: &'r mut crate::Reporter<'src>) -> (Vec<Sp<Node<'src, 'b>>>, Bump) {
 		if tokens.is_empty() { 
 			return (Vec::new(), Bump::new());
 		}
 
-		let mut parser = Self { reporter, bump: Bump::new(), tokens, index: 0 };
+		let mut parser = Self { reporter, bump: Bump::new(), tokens, index: 0, bump_lt: std::marker::PhantomData };
 
 		(parser.parse_block(true), parser.bump)
 	}
 
-	fn parse_block(&mut self, global: bool) -> Vec<Sp<Node<'src>>> {
+	fn parse_block(&mut self, global: bool) -> Vec<Sp<Node<'src, 'b>>> {
 		let mut exprs = Vec::new();
 		let until = if global { TokenKind::EOF } else { TokenKind::RBrace };
 
@@ -70,7 +71,7 @@ impl<'src, 'r> Parser<'src, 'r> {
 		exprs
 	}
 
-	fn parse_stmt(&mut self) -> Result<'src, Sp<Node<'src>>> {
+	fn parse_stmt(&mut self) -> Result<'src, Sp<Node<'src, 'b>>> {
 		let token = self.current();
 		let stmt = match token.kind {
 			TokenKind::KWLet    => self.parse_assign(false)?,
@@ -83,7 +84,7 @@ impl<'src, 'r> Parser<'src, 'r> {
 		Ok(stmt)
 	}
 
-	fn parse_expr(&mut self, mbp: u8) -> Result<'src, Sp<Node<'src>>> {
+	fn parse_expr(&mut self, mbp: u8) -> Result<'src, Sp<Node<'src, 'b>>> {
 		let token = self.current();
 
 		let mut lhs = match token.kind {
@@ -282,7 +283,7 @@ impl<'src, 'r> Parser<'src, 'r> {
 		Ok(lhs)
 	}
 
-	fn parse_lambda(&mut self) -> Result<'src, Sp<Node<'src>>> {
+	fn parse_lambda(&mut self) -> Result<'src, Sp<Node<'src, 'b>>> {
 		let start = self.current().span;
 
 		let args = match self.current().kind {
@@ -355,7 +356,7 @@ impl<'src, 'r> Parser<'src, 'r> {
 			.span(start.extend(&self.current().span)))
 	}
 
-	fn parse_assign(&mut self, stat: bool) -> Result<'src, Sp<Node<'src>>> {
+	fn parse_assign(&mut self, stat: bool) -> Result<'src, Sp<Node<'src, 'b>>> {
 		self.advance();
 		let Sp { elem: Node::Ident { lit, gener }, span } = self.parse_ident()?
 			else { unreachable!() };
@@ -385,7 +386,7 @@ impl<'src, 'r> Parser<'src, 'r> {
 		}.span(span.extend(&self.current().span)))
 	}
 
-	fn parse_atom(&mut self) -> Result<'src, Sp<Node<'src>>> {
+	fn parse_atom(&mut self) -> Result<'src, Sp<Node<'src, 'b>>> {
 		let token = self.current();
 		self.advance();
 
@@ -436,7 +437,7 @@ impl<'src, 'r> Parser<'src, 'r> {
 		})
 	}
 
-	fn parse_ident(&mut self) -> Result<'src, Sp<Node<'src>>> {
+	fn parse_ident(&mut self) -> Result<'src, Sp<Node<'src, 'b>>> {
 		let token = self.current();
 		self.advance_if(|t| matches!(t, TokenKind::Identifier)).then_some(())
 			.ok_or_else(|| ReportKind::UnexpectedToken
@@ -454,7 +455,7 @@ impl<'src, 'r> Parser<'src, 'r> {
 		Ok(Node::Ident { lit: token.text.span(token.span), gener }.span(span))
 	}
 
-	fn parse_generics(&mut self) -> Result<'src, &'src [Sp<Node<'src>>]> {
+	fn parse_generics(&mut self) -> Result<'src, &'b [Sp<Node<'src, 'b>>]> {
 		let token = self.current();
 		self.advance_if(|t| matches!(t, TokenKind::LessThan)).then_some(())
 			.ok_or_else(|| ReportKind::UnexpectedToken

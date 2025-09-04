@@ -3,7 +3,7 @@
 
 use bump::Bump;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct IBig<'bump>(&'bump [u64]);
 
 impl IBig<'_> {
@@ -45,8 +45,8 @@ impl IBig<'_> {
 		self.0.iter().fold(0, |bits, chunk| bits + 64 - chunk.leading_zeros())
 	}
 
-	pub fn copy(&self, bump: &Bump) -> Self {
-		Self(bump.alloc_slice(self.0))
+	pub fn copy<'b>(&self, bump: &Bump) -> IBig<'b> {
+		IBig(bump.alloc_slice(self.0))
 	}
 }
 

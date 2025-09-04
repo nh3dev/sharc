@@ -123,7 +123,6 @@ impl<'src> Compiler<'src> {
 		}
 
 
-
 		let mir = mirgen::Analyzer::process(hir, &mut self.reporter);
 
 		if self.opts.debug { 

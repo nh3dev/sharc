@@ -6,79 +6,79 @@ use bump::Box;
 use colored::Colorize;
 
 #[derive(Debug)]
-pub enum Node<'s> {
+pub enum Node<'src, 'b> {
 	Let {
-		ident: Sp<&'s str>,
-		ty:    Option<Box<'s, Sp<Node<'s>>>>,
-		gener: &'s [Sp<Node<'s>>],
-		expr:  &'s Sp<Node<'s>>,
+		ident: Sp<&'src str>,
+		ty:    Option<Box<'b, Sp<Node<'src, 'b>>>>,
+		gener: &'b [Sp<Node<'src, 'b>>],
+		expr:  &'b Sp<Node<'src, 'b>>,
 		stat:  bool, // static
 	},
 
 	Ident {
-		lit:   Sp<&'s str>, 
-		gener: &'s [Sp<Node<'s>>],
+		lit:   Sp<&'src str>, 
+		gener: &'b [Sp<Node<'src, 'b>>],
 	},
-	StrLit(&'s str),
-	IntLit(IBig<'s>),
-	ArrayLit(&'s [Sp<Node<'s>>], Option<u64>), // [u8], [20, 3, 8], [u16; 10]
-	UnionLit(&'s [Sp<Node<'s>>]),  // ('foo | u8 | foo: u8)
-	StructLit(&'s [Sp<Node<'s>>]), // (u8, 20, foo: 20, foo: u8)
-	Primitive(Primitive<'s>),
-	Quote(&'s str), // 'foo
+	StrLit(&'b str),
+	IntLit(IBig<'b>),
+	ArrayLit(&'b [Sp<Node<'src, 'b>>], Option<u64>), // [u8], [20, 3, 8], [u16; 10]
+	UnionLit(&'b [Sp<Node<'src, 'b>>]),  // ('foo | u8 | foo: u8)
+	StructLit(&'b [Sp<Node<'src, 'b>>]), // (u8, 20, foo: 20, foo: u8)
+	Primitive(Primitive<'src, 'b>),
+	Quote(&'src str), // 'foo
 
 	FuncCall {
-		lhs:  &'s Sp<Node<'s>>,
-		args: &'s [Sp<Node<'s>>],
+		lhs:  &'b Sp<Node<'src, 'b>>,
+		args: &'b [Sp<Node<'src, 'b>>],
 	},
 	Lambda {
-		args:   &'s [LambdaArg<'s>],
-		ret:    Option<&'s Sp<Node<'s>>>,
-		body:   Option<&'s Sp<Node<'s>>>,
-		ext:    Option<Sp<&'s str>>,
-		export: Option<Sp<&'s str>>,
+		args:   &'b [LambdaArg<'src, 'b>],
+		ret:    Option<&'b Sp<Node<'src, 'b>>>,
+		body:   Option<&'b Sp<Node<'src, 'b>>>,
+		ext:    Option<Sp<&'src str>>,
+		export: Option<Sp<&'src str>>,
 	},
 
-	Block(&'s [Sp<Node<'s>>]),
+	Block(&'b [Sp<Node<'src, 'b>>]),
 
 	// UNARY EXPR
-	Star(&'s Sp<Node<'s>>),
-	Amp(&'s Sp<Node<'s>>),
-	Neg(&'s Sp<Node<'s>>),
-	Ret(Option<&'s Sp<Node<'s>>>),
-	Move(&'s Sp<Node<'s>>),
-	Mut(&'s Sp<Node<'s>>),
+	Star(&'b Sp<Node<'src, 'b>>),
+	Amp(&'b Sp<Node<'src, 'b>>),
+	Neg(&'b Sp<Node<'src, 'b>>),
+	Ret(Option<&'b Sp<Node<'src, 'b>>>),
+	Move(&'b Sp<Node<'src, 'b>>),
+	Mut(&'b Sp<Node<'src, 'b>>),
 
 	// BINARY EXPR
-	Sub(&'s Sp<Node<'s>>,   &'s Sp<Node<'s>>),
-	Add(&'s Sp<Node<'s>>,   &'s Sp<Node<'s>>),
-	Mul(&'s Sp<Node<'s>>,   &'s Sp<Node<'s>>),
-	Div(&'s Sp<Node<'s>>,   &'s Sp<Node<'s>>),
-	Mod(&'s Sp<Node<'s>>,   &'s Sp<Node<'s>>),
+	Sub(&'b Sp<Node<'src, 'b>>,   &'b Sp<Node<'src, 'b>>),
+	Add(&'b Sp<Node<'src, 'b>>,   &'b Sp<Node<'src, 'b>>),
+	Mul(&'b Sp<Node<'src, 'b>>,   &'b Sp<Node<'src, 'b>>),
+	Div(&'b Sp<Node<'src, 'b>>,   &'b Sp<Node<'src, 'b>>),
+	Mod(&'b Sp<Node<'src, 'b>>,   &'b Sp<Node<'src, 'b>>),
 	// NOTE: needs to be box for now so we can take out the Node
 	// if there is a better way to do this chicanery in the parser feel free to fix :)
-	Store(Box<'s, Sp<Node<'s>>>, Box<'s, Sp<Node<'s>>>), // foo = 20
-	Field(&'s Sp<Node<'s>>, &'s Sp<Node<'s>>), // foo: bar
-	As(&'s Sp<Node<'s>>,    &'s Sp<Node<'s>>),
+	Store(Box<'b, Sp<Node<'src, 'b>>>, Box<'b, Sp<Node<'src, 'b>>>), // foo = 20
+	Field(&'b Sp<Node<'src, 'b>>, &'b Sp<Node<'src, 'b>>), // foo: bar
+	As(&'b Sp<Node<'src, 'b>>,    &'b Sp<Node<'src, 'b>>),
 }
 
 #[derive(Debug)]
-pub struct LambdaArg<'s> {
-	pub ident:   Sp<&'s str>,
-	pub ty:      Option<Sp<Node<'s>>>,
-	pub default: Option<Sp<Node<'s>>>,
+pub struct LambdaArg<'src, 'b> {
+	pub ident:   Sp<&'src str>,
+	pub ty:      Option<Sp<Node<'src, 'b>>>,
+	pub default: Option<Sp<Node<'src, 'b>>>,
 }
 
 #[derive(Debug)]
-pub enum Primitive<'s> {
+pub enum Primitive<'src, 'b> {
 	U(u32), I(u32), B(u32), F(u32),
 	Usize, Isize,
 	Any, None, Never,
 	Type,
-	Fn(&'s [Sp<Node<'s>>], Option<&'s Sp<Node<'s>>>),
+	Fn(&'b [Sp<Node<'src, 'b>>], Option<&'b Sp<Node<'src, 'b>>>),
 }
 
-impl Display for Node<'_> {
+impl Display for Node<'_, '_> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		fn join_tostring(iter: impl IntoIterator<Item = impl ToString>, s: &str) -> String {
 			iter.into_iter().map(|e| ToString::to_string(&e)).collect::<std::vec::Vec<_>>().join(s)
@@ -179,7 +179,7 @@ impl Display for Node<'_> {
 	}
 }
 
-impl Display for LambdaArg<'_> {
+impl Display for LambdaArg<'_, '_> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(f, "{}", self.ident.normal())?;
 		if let Some(ty) = &self.ty { write!(f, ": {ty}")?; }
@@ -188,7 +188,7 @@ impl Display for LambdaArg<'_> {
 	}
 }
 
-impl Display for Primitive<'_> {
+impl Display for Primitive<'_, '_> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(f, "{}", match self {
 			Self::U(i)   => format!("u{i}"),

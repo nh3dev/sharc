@@ -4,60 +4,60 @@ use colored::Colorize;
 use crate::span::Sp;
 
 #[derive(Debug)]
-pub enum Node<'s> {
+pub enum Node<'src, 'b> {
 	Let {
-		ident: Sp<&'s str>,
-		ty:    Option<&'s Ty<'s, Sp<Node<'s>>>>,
-		gener: &'s [Sp<Node<'s>>],
-		expr:  &'s Ty<'s, Sp<Node<'s>>>,
+		ident: Sp<&'src str>,
+		ty:    Option<&'b Ty<'src, 'b, Sp<Node<'src, 'b>>>>,
+		gener: &'b [Sp<Node<'src, 'b>>],
+		expr:  &'b Ty<'src, 'b, Sp<Node<'src, 'b>>>,
 		stat:  bool, // static
 	},
 
 	Ident {
-		lit:   Sp<&'s str>, 
-		gener: &'s [Sp<Node<'s>>],
+		lit:   Sp<&'src str>, 
+		gener: &'b [Sp<Node<'src, 'b>>],
 	},
-	StrLit(&'s str),
-	IntLit(crate::bigint::IBig<'s>),
-	ArrayLit(&'s [Sp<Node<'s>>], Option<u64>), // [u8], [20, 3, 8], [u16; 10]
-	UnionLit(&'s [Sp<Node<'s>>]),  // ('foo | u8 | foo: u8)
-	StructLit(&'s [Sp<Node<'s>>]), // (u8, 20, foo: 20, foo: u8)
-	Primitive(&'s Type<'s>),
-	Quote(&'s str), // 'foo
+	StrLit(&'b str),
+	IntLit(crate::bigint::IBig<'b>),
+	ArrayLit(&'b [Sp<Node<'src, 'b>>], Option<u64>), // [u8], [20, 3, 8], [u16; 10]
+	UnionLit(&'b [Sp<Node<'src, 'b>>]),  // ('foo | u8 | foo: u8)
+	StructLit(&'b [Sp<Node<'src, 'b>>]), // (u8, 20, foo: 20, foo: u8)
+	Primitive(&'b Type<'src, 'b>),
+	Quote(&'src str), // 'foo
 
 	FuncCall {
-		lhs:  &'s Ty<'s, Sp<Node<'s>>>,
-		args: &'s [Sp<Node<'s>>],
+		lhs:  &'b Ty<'src, 'b, Sp<Node<'src, 'b>>>,
+		args: &'b [Sp<Node<'src, 'b>>],
 	},
 	Lambda {
-		args:   &'s [LambdaArg<'s>],
-		ret:    Option<&'s Ty<'s, Sp<Node<'s>>>>,
-		body:   Option<&'s Ty<'s, Sp<Node<'s>>>>,
-		ext:    Option<Sp<&'s str>>,
-		export: Option<Sp<&'s str>>,
+		args:   &'b [LambdaArg<'src, 'b>],
+		ret:    Option<&'b Ty<'src, 'b, Sp<Node<'src, 'b>>>>,
+		body:   Option<&'b Ty<'src, 'b, Sp<Node<'src, 'b>>>>,
+		ext:    Option<Sp<&'src str>>,
+		export: Option<Sp<&'src str>>,
 	},
 
-	Block(&'s [Sp<Node<'s>>]),
+	Block(&'b [Sp<Node<'src, 'b>>]),
 	Builtin {
 		kind:  BuiltinKind,
-		gener: &'s [&'s Type<'s>],
-		vals:  &'s [Ty<'s, Sp<Node<'s>>>],
+		gener: &'b [&'b Type<'src, 'b>],
+		vals:  &'b [Ty<'src, 'b, Sp<Node<'src, 'b>>>],
 	},
 
 	// UNARY EXPR
-	Ret(Option<&'s Ty<'s, Sp<Node<'s>>>>),
-	Move(&'s Ty<'s, Sp<Node<'s>>>),
+	Ret(Option<&'b Ty<'src, 'b, Sp<Node<'src, 'b>>>>),
+	Move(&'b Ty<'src, 'b, Sp<Node<'src, 'b>>>),
 
 	// BINARY EXPR
-	Store(&'s Ty<'s, Sp<Node<'s>>>, &'s Ty<'s, Sp<Node<'s>>>), // foo = 20
-	Field(&'s Ty<'s, Sp<Node<'s>>>, &'s Ty<'s, Sp<Node<'s>>>), // foo: bar
+	Store(&'b Ty<'src, 'b, Sp<Node<'src, 'b>>>, &'b Ty<'src, 'b, Sp<Node<'src, 'b>>>), // foo = 20
+	Field(&'b Ty<'src, 'b, Sp<Node<'src, 'b>>>, &'b Ty<'src, 'b, Sp<Node<'src, 'b>>>), // foo: bar
 }
 
 #[derive(Debug)]
-pub struct LambdaArg<'s> {
-	pub ident:   Sp<&'s str>,
-	pub ty:      Option<Ty<'s, Sp<Node<'s>>>>,
-	pub default: Option<Ty<'s, Sp<Node<'s>>>>,
+pub struct LambdaArg<'src, 'b> {
+	pub ident:   Sp<&'src str>,
+	pub ty:      Option<Ty<'src, 'b, Sp<Node<'src, 'b>>>>,
+	pub default: Option<Ty<'src, 'b, Sp<Node<'src, 'b>>>>,
 }
 
 #[derive(Debug)]
@@ -67,54 +67,54 @@ pub enum BuiltinKind {
 
 
 #[derive(Debug)]
-pub struct Ty<'s, T> {
+pub struct Ty<'src, 'b, T> {
 	pub elem: T,
-	pub ty:   &'s Type<'s>,
+	pub ty:   &'b Type<'src, 'b>,
 }
 
 impl<T> TypeInf for T {}
 pub trait TypeInf {
-	fn typed<'a>(self, ty: &'a Type<'a>) -> Ty<'a, Self> where Self: Sized {
+	fn typed<'src, 'b>(self, ty: &'b Type<'src, 'b>) -> Ty<'src, 'b, Self> where Self: Sized {
 		Ty { ty, elem: self }
 	}
 }
 
 #[derive(Debug)]
-pub struct Type<'s> {
-	pub ident: Option<Sp<&'s str>>, // newtypes
-	pub kind:  TypeKind<'s>,
+pub struct Type<'src, 'b> {
+	pub ident: Option<Sp<&'src str>>, // newtypes
+	pub kind:  TypeKind<'src, 'b>,
 }
 
-impl<'s> Type<'s> {
-	pub fn new(kind: TypeKind<'s>) -> Self {
+impl<'src, 'b> Type<'src, 'b> {
+	pub fn new(kind: TypeKind<'src, 'b>) -> Self {
 		Type { ident: None, kind }
 	}
 
-	pub fn with_ident(ident: Sp<&'s str>, kind: TypeKind<'s>) -> Self {
+	pub fn with_ident(ident: Sp<&'src str>, kind: TypeKind<'src, 'b>) -> Self {
 		Type { ident: Some(ident), kind }
 	}
 }
 
 #[derive(Debug)]
-pub enum TypeKind<'s> {
+pub enum TypeKind<'src, 'b> {
 	Generic(usize),
 
-	ArrayLit(&'s [&'s Type<'s>], Option<u64>),
-	UnionLit(&'s [&'s Type<'s>]),
-	StructLit(&'s [&'s Type<'s>]),
+	ArrayLit(&'b [&'b Type<'src, 'b>], Option<u64>),
+	UnionLit(&'b [&'b Type<'src, 'b>]),
+	StructLit(&'b [&'b Type<'src, 'b>]),
 	U(u32), I(u32), B(u32), F(u32),
-	Ref(&'s Type<'s>),
-	Mut(&'s Type<'s>),
+	Ref(&'b Type<'src, 'b>),
+	Mut(&'b Type<'src, 'b>),
 	Usize, Isize,
 	Any, None, Never, Type,
-	// Type(Rc<'s, Type<'s>>),
-	Fn(&'s [&'s Type<'s>], Option<&'s Type<'s>>),
+	// Type(Rc<'b, Type<'src, 'b>>),
+	Fn(&'b [&'b Type<'src, 'b>], Option<&'b Type<'src, 'b>>),
 }
 
 
 
 
-impl Display for Node<'_> {
+impl Display for Node<'_, '_> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		fn join_tostring(iter: impl IntoIterator<Item = impl ToString>, s: &str) -> String {
 			iter.into_iter().map(|e| ToString::to_string(&e)).collect::<std::vec::Vec<_>>().join(s)
@@ -212,7 +212,7 @@ impl Display for Node<'_> {
 	}
 }
 
-impl Display for LambdaArg<'_> {
+impl Display for LambdaArg<'_, '_> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(f, "{}", self.ident.normal())?;
 		if let Some(ty) = &self.ty { write!(f, ": {ty}")?; }
@@ -221,20 +221,20 @@ impl Display for LambdaArg<'_> {
 	}
 }
 
-impl<T: Display> Display for Ty<'_, T> {
+impl<T: Display> Display for Ty<'_, '_, T> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(f, "{}{}", self.elem, format!(": {}", self.ty).dimmed())
 	}
 }
 
-impl fmt::Display for Type<'_> {
+impl fmt::Display for Type<'_, '_> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		if let Some(ident) = &self.ident { write!(f, "{} ", ident.to_string().purple())?; }
 		write!(f, "{}", self.kind)
 	}
 }
 
-impl fmt::Display for TypeKind<'_> {
+impl fmt::Display for TypeKind<'_, '_> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		fn join_tostring(iter: impl IntoIterator<Item = impl ToString>, s: &str) -> String {
 			iter.into_iter().map(|e| ToString::to_string(&e)).collect::<std::vec::Vec<_>>().join(s)
