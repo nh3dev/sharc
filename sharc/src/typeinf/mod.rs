@@ -7,7 +7,7 @@ use crate::span::{Sp, Spannable};
 use bump::Bump;
 
 pub mod hir;
-use hir::{BuiltinKind, TypeInf as _, Ty, Type, TypeKind, Node as TyNode, LambdaArg as TyLambdaArg};
+use hir::{TypeInf as _, Ty, Type, TypeKind, Node as TyNode, LambdaArg as TyLambdaArg};
 
 pub struct TypeInf<'src, 'bo, 'b, 'r> {
 	reporter: &'r mut crate::Reporter<'src>,
@@ -79,10 +79,10 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 		&self,
 		ty:    &'b Type<'src, 'b>, 
 		gener: &'b [&'b Type<'src, 'b>], 
-		path:  &'b [&'src str], // aaaaaaa
+		path:  &'b [Sp<&'src str>], // aaaaaaa
 		ident: &Sp<&'src str>,
 	) -> Result<'src, Option<&'b [&'b Type<'src, 'b>]>> {
-		if path.get(0).is_some_and(|&p| p == "core") {
+		if path.get(0).is_some_and(|p| **p == "core") {
 			return self.resolve_core_trait(ty, gener, ident);
 		}
 
@@ -140,14 +140,15 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 				let trait_ = self.resolve_trait(
 					&lhs.ty, 
 					&self.bump.alloc_sized_slice([rhs.ty]), 
-					&self.bump.alloc_sized_slice(["core"]), 
+					&self.bump.alloc_sized_slice(["core".span(node.span)]),
 					&"Add".span(node.span))?
 					.ok_or_else(|| ReportKind::NoSuchTrait
 						.title(format!("`core::Add<{}>` not implemented for {}", rhs.ty.kind, lhs.ty.kind))
 						.span(node.span))?;
 
-				TyNode::Builtin { 
-					kind:  BuiltinKind::Add, 
+				TyNode::ImplCall {
+					path:  self.bump.alloc_sized_slice(["core".span(node.span)]),
+					ident: "Add".span(node.span),
 					gener: self.bump.alloc_sized_slice([lhs.ty, rhs.ty]), 
 					vals:  self.bump.alloc_sized_slice([lhs, rhs]),
 				}.span(node.span).typed(trait_.last().unwrap())
@@ -160,8 +161,9 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 				let rhs = self.infer_node(rhs)?; // lossy
 				let ty  = self.resolve_type(&rhs)?;
 
-				TyNode::Builtin { 
-					kind:  BuiltinKind::As,
+				TyNode::ImplCall { 
+					path:  self.bump.alloc_sized_slice(["core".span(node.span)]),
+					ident: "As".span(node.span),
 					gener: self.bump.alloc_sized_slice([ty]),
 					vals:  self.bump.alloc_sized_slice([lhs]),
 				}.span(node.span).typed(ty)

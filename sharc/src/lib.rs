@@ -14,20 +14,20 @@
 
 use colored::Colorize;
 
-pub use crate::report::{Report, ReportKind};
+pub use bump;
 
 mod lexer;
 mod parser;
 mod typeinf;
 mod mirgen;
-// mod codegen; // TODO: this is gonna be separate, same with the runtime
 
 mod report;
 mod span;
 mod bigint;
 
-// TODO: maybe move bump into sharc and then have sharc-cli use the reexport?
-pub use bump;
+pub use report::{Report, ReportKind};
+pub use mirgen::mir;
+pub use bigint::IBig;
 
 
 struct Reporter<'src> {
@@ -82,8 +82,9 @@ impl<'src> Compiler<'src> {
 		self.reporter.cb = Box::new(callback); self
 	}
 
-	// Result<MIR, ERR_COUNT>
-	pub fn compile(mut self, code: &'src str, filename: &'src str) -> Result<!, usize> {
+	/// DO NOT drop the returned Bump before the mir. its used to allocate the mir and you'll get a 
+	/// use after free :L. I dont think rust has a way to enforce this, if there is let me know!
+	pub fn compile<'b>(mut self, code: &'src str, filename: &'src str) -> Result<(Vec<mirgen::mir::Node<'b>>, bump::Bump), usize> {
 		self.reporter.filename = filename;
 		self.reporter.code     = code;
 
@@ -134,6 +135,6 @@ impl<'src> Compiler<'src> {
 			return Err(self.reporter.count); 
 		}
 
-		Ok(todo!())
+		Ok(mir)
 	}
 }

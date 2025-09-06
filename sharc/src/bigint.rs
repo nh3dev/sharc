@@ -3,10 +3,15 @@
 
 use bump::Bump;
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone, Copy)]
 pub struct IBig<'bump>(&'bump [u64]);
 
 impl IBig<'_> {
+	pub fn to_vec(&self) -> Vec<u64> {
+		self.0.to_vec()
+	}
+
 	pub fn from_u64(bump: &Bump, i: u64) -> Self {
 		Self(bump.alloc_sized_slice([i]))
 	}

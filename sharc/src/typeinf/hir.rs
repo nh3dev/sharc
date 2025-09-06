@@ -38,8 +38,9 @@ pub enum Node<'src, 'b> {
 	},
 
 	Block(&'b [Sp<Node<'src, 'b>>]),
-	Builtin {
-		kind:  BuiltinKind,
+	ImplCall {
+		path:  &'b [Sp<&'src str>],
+		ident: Sp<&'src str>,
 		gener: &'b [&'b Type<'src, 'b>],
 		vals:  &'b [Ty<'src, 'b, Sp<Node<'src, 'b>>>],
 	},
@@ -59,12 +60,6 @@ pub struct LambdaArg<'src, 'b> {
 	pub ty:      Option<Ty<'src, 'b, Sp<Node<'src, 'b>>>>,
 	pub default: Option<Ty<'src, 'b, Sp<Node<'src, 'b>>>>,
 }
-
-#[derive(Debug)]
-pub enum BuiltinKind {
-	As, Add,
-}
-
 
 #[derive(Debug)]
 pub struct Ty<'src, 'b, T> {
@@ -190,9 +185,9 @@ impl Display for Node<'_, '_> {
 				}
 				write!(f, ")")
 			},
-			
-			Self::Builtin { kind, gener, vals } => {
-				write!(f, "core::{}", format!("{kind:?}").red())?;
+
+			Self::ImplCall { path, ident, gener, vals } => {
+				write!(f, "{}::{}", join_tostring(&**path, "::"), ident.red())?;
 				if !gener.is_empty() { write!(f, "<{}>", join_tostring(&**gener, ", "))?; }
 				write!(f, "(")?;
 				if !vals.is_empty() { write!(f, "{}", join_tostring(&**vals, ", "))?; }

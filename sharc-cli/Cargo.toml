@@ -4,9 +4,9 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-bump.workspace    = true
 colored.workspace = true
 sharc             = { path = "../sharc" }
+miri              = { path = "miri" }
 
 [features]
 backtrace = ["sharc/backtrace"]

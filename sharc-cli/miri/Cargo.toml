@@ -1,0 +1,7 @@
+[package]
+name    = "miri"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+sharc = { path = "../../sharc" }

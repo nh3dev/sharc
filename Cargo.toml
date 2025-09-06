@@ -3,7 +3,6 @@ resolver = "3"
 members = [
 	"sharc",
 	"sharc-cli",
-	"bump",
 	"colored",
 ]
 
@@ -19,7 +18,6 @@ description = "Compiler for the Shard Programming Language."
 license     = "0BSD"
 
 [workspace.dependencies]
-bump = { path = "bump" }
 colored = { path = "colored" }
 
 [profile.release]

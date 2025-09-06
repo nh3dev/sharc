@@ -4,8 +4,11 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-bump.workspace    = true
 colored.workspace = true
+bump  = { path = "bump" }
+# TODO: write the deserializer for mir?
+serde = { version = "1.0", optional = true, features = ["derive"] }
 
 [features]
 backtrace = []
+serde     = ["dep:serde"]

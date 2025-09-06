@@ -23,5 +23,7 @@ fn main() {
 		Ok(mir) => mir,
 		Err(err) => panic!("shardn't :(  {err} errors"),
 	};
+
+	println!("{:?}", miri::Runtime::new().run(mir));
 }
 

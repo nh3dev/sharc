@@ -21,14 +21,13 @@ pub enum ReportKind {
 	InvalidNumber,
 
 	// typeinf
+	TypeError, // instead
 	UnexpectedType,
 	UnexpectedGenericCount,
 	NoSuchTrait,
 
-	// Analyzer
-	TypeError,
-	UndefinedSym,
-	InvalidArgCount,
+	// mirgen
+	NodeNotAnExpr,	
 
 	// General
 	IOError,

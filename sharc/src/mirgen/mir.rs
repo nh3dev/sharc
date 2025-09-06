@@ -3,6 +3,7 @@ use colored::Colorize;
 use crate::bigint::IBig;
 
 #[repr(transparent)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Clone, Copy, Default, Debug, Eq, Hash, PartialEq)]
 pub struct ValId(pub u64);
 impl std::ops::Deref for ValId { // FIXME: prob not needed
@@ -11,6 +12,8 @@ impl std::ops::Deref for ValId { // FIXME: prob not needed
 	{ &self.0 }
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[derive(Debug)]
 pub enum Node<'b> {
 	Assign {
 		id:   ValId,
@@ -20,26 +23,31 @@ pub enum Node<'b> {
 	Ret(Var<'b>, &'b Type<'b>),
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[derive(Debug)]
 pub enum Expr<'b> {
 	Call {
 		id:   Var<'b>,
-		args: &'b [(&'b Var<'b>, &'b Type<'b>)],
+		args: &'b [(Var<'b>, &'b Type<'b>)],
 	},
-	CallImpl {
+	ImplCall {
 		path:  &'b [&'b str],
 		ident: &'b str,
 		gener: &'b [&'b Type<'b>],
-		args:  &'b [(&'b Var<'b>, &'b Type<'b>)],
+		args:  &'b [(Var<'b>, &'b Type<'b>)],
 	},
 	StrLit(&'b str),
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[derive(Debug, Clone, Copy)]
 pub enum Var<'b> {
 	Imm(IBig<'b>),
 	Local(ValId),
 	None,
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, PartialEq)]
 pub enum Type<'b> {
 	U(u32), I(u32), B(u32), F(u32),
@@ -70,7 +78,7 @@ impl fmt::Display for Expr<'_> {
 				}
 				write!(f, ")")
 			},
-			Self::CallImpl { path, ident, gener, args } => {
+			Self::ImplCall { path, ident, gener, args } => {
 				if !path.is_empty() {
 					for p in *path { write!(f, "{p}::")?; }
 				}

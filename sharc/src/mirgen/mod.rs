@@ -5,7 +5,7 @@ use crate::span::Sp;
 use crate::typeinf::hir;
 
 pub mod mir;
-use mir::{Node, ValId, Var, Type};
+use mir::{Node, ValId, Var, Type, Expr};
 
 use colored::Colorize;
 
@@ -16,7 +16,10 @@ pub struct Analyzer<'r, 'src, 'bo, 'b> {
 	bump:     Bump,
 	bump_lt:  std::marker::PhantomData<&'b Bump>,
 	bumpo_lt: std::marker::PhantomData<&'bo Bump>,
+
 	scope:    Vec<Scope<'b>>,
+	// impls:    
+
 	// symbols:  HashMap<ValId, String>,
 }
 
@@ -26,7 +29,18 @@ struct Scope<'b> {
 	locals: Vec<(ValId, String, Type<'b>)>, 
 }
 
+impl Scope<'_> {
+	fn id(&mut self) -> ValId {
+		self.idacc.0 += 1;
+		self.idacc
+	}
+}
+
 impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
+	fn scope(&mut self) -> &mut Scope<'b> {
+		self.scope.last_mut().unwrap()
+	}
+
 	pub fn process((hir, hir_bump): (Vec<hir::Ty<'src, 'bo, Sp<hir::Node<'src, 'bo>>>>, Bump), reporter: &'r mut crate::Reporter<'src>) -> (Vec<Node<'b>>, Bump) {
 		let mut analyzer = Self { 
 			reporter, 
@@ -38,43 +52,62 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 		};
 
 		let hir_len = hir.len();
-		let mir = hir.into_iter().enumerate().filter_map(
+		let mir = hir.into_iter().enumerate().flat_map(
 			|(i, node)| analyzer.process_node(i == hir_len - 1, &node).map_or_else(
-				|l| { analyzer.reporter.nom(*l); None }, 
-				|n| Some(n.into_iter())))
-			.flatten()
+				|l| { analyzer.reporter.nom(*l); Vec::new().into_iter() }, 
+				|(_, _, n)| n.into_iter()))
 			.collect::<Vec<_>>();
 
 		std::mem::drop(hir_bump);
 		(mir, analyzer.bump)
 	}
 
-	pub fn process_node(&mut self, ret: bool, node: &hir::Ty<'src, 'bo, Sp<hir::Node<'src, 'bo>>>) -> Result<'src, Vec<Node<'b>>> {
-		let (var, nodes, ty) = match &node.elem.elem {
-			hir::Node::Builtin { kind, gener, vals } => {
-				todo!();
-				(Var::None, Vec::new(), self.bump.alloc(self.process_type(node.ty)))
+	pub fn process_node(&mut self, ret: bool, node: &hir::Ty<'src, 'bo, Sp<hir::Node<'src, 'bo>>>) 
+		-> Result<'src, (Var<'b>, &'b Type<'b>, Vec<Node<'b>>)> {
+		let mut nodes = Vec::new();
+
+		let ty = self.process_type(node.ty);
+
+		let var = match &node.elem.elem {
+			hir::Node::ImplCall { path, ident, gener, vals } => {
+				let gener = self.bump.alloc_from_iter(gener.iter().map(|g| self.process_type(g)));
+
+				let args = vals.into_iter().map(|val| {
+					let (var, ty, n_nodes) = self.process_node(false, val)?;
+					nodes.extend(n_nodes);
+					Ok((var, ty))
+				}).collect::<Result<Vec<_>>>()?;
+
+				let id = self.scope().id();
+
+				nodes.push(Node::Assign { id, ty, expr: Expr::ImplCall { 
+					path:  self.bump.alloc_from_iter(path.iter().map(|s| self.bump.alloc_str(s))),
+					ident: self.bump.alloc_str(ident),
+					args:  self.bump.alloc_from_vec(args),
+					gener,
+				}});
+
+				Var::Local(id)
 			},
+			hir::Node::IntLit(v) => Var::Imm(v.copy(&self.bump)),
 			_ => todo!("{}", node),
 		};
 
 		if ret {
-			nodes.push(Node::Ret(var, ty));
+			nodes.push(Node::Ret(var, self.process_type(node.ty)));
 		}
 
-		Ok(nodes)
+		Ok((var, ty, nodes))
 	}
 
-	pub fn process_type(&self, ty: &'bo hir::Type<'src, 'bo>) -> Type<'b> {
-		todo!();
+	pub fn process_type(&self, ty: &'bo hir::Type<'src, 'bo>) -> &'b Type<'b> {
+		match ty.kind {
+			hir::TypeKind::U(n)  => self.bump.alloc(Type::U(n)),
+			hir::TypeKind::I(n)  => self.bump.alloc(Type::I(n)),
+			_ => todo!("{:?}", ty),
+		}
 	}
 }
-
-// 	fn new_id(&mut self) -> ValId {
-// 		self.idacc.0 += 1;
-// 		self.idacc
-// 	}
-// }
 
 // impl Analyzer {
 // 	#[inline]
