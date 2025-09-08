@@ -47,7 +47,10 @@ impl IBig<'_> {
 	}
 
 	pub fn min_bit_size(&self) -> u32 {
-		self.0.iter().fold(0, |bits, chunk| bits + 64 - chunk.leading_zeros())
+		self.0.iter().fold(0, |bits, chunk| match chunk.leading_zeros() {
+			64 if self.0.len() > 1 => bits + 64,
+			v  => bits + 64 - v,
+		})
 	}
 
 	pub fn copy<'b>(&self, bump: &Bump) -> IBig<'b> {

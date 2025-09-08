@@ -19,6 +19,7 @@ license     = "0BSD"
 
 [workspace.dependencies]
 colored = { path = "colored" }
+sharc   = { path = "sharc" }
 
 [profile.release]
 lto = "thin"

@@ -1,20 +1,10 @@
-use sharc::mir::{Expr, Node, Var, Type};
+use sharc::mir::{Expr, Node, Var, Type as MirType};
 
-pub struct Value {
-	val: Val,
-	ty:  Type,
-}
-
-#[derive(Debug, Clone)]
-pub enum Val {
-	None,
-	Int(Vec<u64>),
-
-	Ret(usize),
-}
+mod val;
+use val::{Type, Val, Value};
 
 pub struct Runtime {
-	stack: Vec<Value>,
+	stack: Vec<Option<Value>>,
 	base:  usize,
 }
 
@@ -26,18 +16,20 @@ impl<'b> Runtime {
 		}
 	}
 
-	fn resolve_var(&self, val: &sharc::mir::Var<'b>) -> Value {
+	fn resolve_var(&mut self, val: &Var, ty: &MirType) -> Value {
+		let ty = Type::from_mir(ty);
 		match val {
-			Var::None      => Value::None,
-			Var::Imm(i)    => Value::Int(i.to_vec()),
-			Var::Local(id) => self.stack.get(self.base + id.0 as usize - 1).unwrap().clone(),
+			Var::None      => Value::none(),
+			Var::Imm(i)    => Value::new(Val::Int(i.to_vec()), ty),
+			Var::Local(id) => std::mem::take(self.stack.get_mut(self.base + id.0 as usize - 1).unwrap()).unwrap(),
 		}
 	}
 
 	fn assign(&mut self, i: usize, val: Value) {
 		match self.stack.get_mut(self.base + i - 1) {
-			Some(v) => *v = val,
-			None    => self.stack.insert(self.base + i - 1, val),
+			Some(v) => panic!("Local already assigned: %{i} = {}", v.as_ref()
+				.map_or_else(|| String::from("dropped"), |v| v.to_string())),
+			None    => self.stack.push(Some(val)),
 		}
 	}
 
@@ -46,11 +38,11 @@ impl<'b> Runtime {
 	}
 
 	fn eval_mir_block(&mut self, block: &[Node<'b>]) -> Value {
-		self.stack.push(Value::Ret(self.base));
+		self.stack.push(Some(Value::new(Val::Ret(self.base), Type::None)));
 		self.base = self.stack.len();
 		let ret = self.eval_mir_block_inner(block);
 		self.stack.truncate(self.base);
-		let Value::Ret(base) = self.stack.pop().unwrap() 
+		let Some(Value { val: Val::Ret(base), .. }) = self.stack.pop().unwrap() 
 			else { unreachable!() };
 		self.base = base;
 		ret
@@ -63,44 +55,25 @@ impl<'b> Runtime {
 					let val = self.eval_mir_expr(expr);
 					self.assign(id.0 as usize, val);
 				},
-				Node::Ret(val, ty) => return self.resolve_var(&val),
+				Node::Ret(val, ty) => return self.resolve_var(&val, ty),
 			}
 		}
-		Value::None
+		Value::none()
 	}
 
 	fn eval_mir_expr(&mut self, expr: &Expr<'b>) -> Value {
 		match expr {
 			Expr::ImplCall { path: ["core"], ident, gener, args } => match *ident {
 				"Add" => {
-					let lhs = self.resolve_var(&args[0].0);
-					let rhs = self.resolve_var(&args[1].0);
-					let (Value::Int(mut l), Value::Int(r)) = (lhs, rhs) 
-						else { return Value::None; };
+					let lhs = self.resolve_var(&args[0].0, &args[0].1);
+					let rhs = self.resolve_var(&args[1].0, &args[1].1);
 
-					if l.len() < r.len() { l.resize(r.len(), 0); }
-					for (i, v) in r.iter().enumerate() {
-						let (res, overflow) = l[i].overflowing_add(*v);
-						l[i] = res;
-						if overflow {
-							let mut carry = 1;
-							for j in i+1..l.len() {
-								let (res, overflow) = l[j].overflowing_add(carry);
-								l[j] = res;
-								if !overflow { break; }
-							}
-							if carry > 0 {
-								l.push(carry);
-							}
-						}
-					}
-
-					Value::Int(l)
+					Value::add(lhs, rhs, gener.get(2).map(|t| Type::from_mir(t)))
 				},
 				"As" => {
-					self.resolve_var(&args[0].0)
+					self.resolve_var(&args[0].0, &gener[0])
 				},
-				_ => Value::None,
+				_ => Value::none(),
 			},
 			Expr::ImplCall { path, ident, gener, args } => todo!(),
 			Expr::StrLit(s) => todo!(),

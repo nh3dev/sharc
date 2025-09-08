@@ -1,6 +1,5 @@
-#![feature(backtrace_frames)]
-
 use std::cell::RefCell;
+use colored::Colorize;
 
 mod args;
 mod motd;
@@ -11,19 +10,43 @@ fn main() {
 	if args.debug { eprintln!("{args:#?}"); }
 	
 	let logger = Box::leak(Box::new(RefCell::new(logger::Logger::new())));
+	let mut rt = miri::Runtime::new();
 
-	let code = std::fs::read_to_string(args.file).unwrap();
+	loop {
+		let code = match args.repl {
+			false => std::fs::read_to_string(args.output).unwrap(),
+			true  => {
+				eprint!("> ");
+				std::io::Write::flush(&mut std::io::stderr()).unwrap();
+				let mut input = String::new();
+				std::io::stdin().read_line(&mut input).unwrap();
+				if input.chars().all(|c| c.is_whitespace()) { break }
+				input
+			},
+		};
 
-	let mut rt = sharc::Compiler::new(sharc::CompilerOptions {
-		debug: args.debug,
-		.. Default::default()
-	}).report_callback(|r| logger.borrow_mut().log(logger::Report(r)));
+		let conf = sharc::CompilerOptions {
+			debug: args.debug,
+			.. Default::default()
+		};
 
-	let mir = match rt.compile(&code, &args.file) {
-		Ok(mir) => mir,
-		Err(err) => panic!("shardn't :(  {err} errors"),
-	};
+		let mir = match sharc::Compiler::new(conf)
+			.report_callback(|r| logger.borrow_mut().log(logger::Report(r)))
+			.compile(&code, args.output) {
+			Ok(mir) => mir,
+			Err(e) => {
+				println!("{}", "shardn't :(  {err} errors".red());
+				break;
+			}
+		};
 
-	println!("{:?}", miri::Runtime::new().run(mir));
+		if args.debug {
+			eprintln!("\n{}", "RUNTIME".bold());
+		}
+
+		println!("{}", rt.run(mir));
+
+		if !args.repl { break }
+	}
 }
 

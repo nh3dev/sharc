@@ -5,7 +5,7 @@ edition.workspace = true
 
 [dependencies]
 colored.workspace = true
-sharc             = { path = "../sharc" }
+sharc.workspace   = true
 miri              = { path = "miri" }
 
 [features]

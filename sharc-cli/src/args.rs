@@ -14,10 +14,10 @@ macro_rules! error {
 pub struct Args {
 	// logging
 	pub debug:        bool,
+	pub repl:         bool,
 	pub level:        u8,
 	
 	// io
-	pub file:         &'static str,
 	pub output:       &'static str,
 
 	// script
@@ -27,12 +27,12 @@ pub struct Args {
 impl Args {
 	pub fn default() -> Self {
 		Self {
-			debug:        false,
-			level:        2, // warn
+			debug:  false,
+			repl:   false,
+			level:  2, // warn
 
-			file:         "main.shd",
-			output:       "",
-			verbs:        Vec::new(),
+			output: "main.smir",
+			verbs:  Vec::new(),
 		}
 	}
 
@@ -85,12 +85,7 @@ impl Args {
 					exit(0);
 				},
 				"d" | "debug" => self.debug = true,
-				"f" | "file" => {
-					err_if_arg_end!();
-					let file = args.next().unwrap_or_else(|| error!("{arg} expected FILE"));
-
-					self.file = Box::leak(file.into_boxed_str());
-				},
+				"r" | "repl"  => self.repl = true,
 				"o" | "output" => {
 					err_if_arg_end!();
 
@@ -120,19 +115,18 @@ impl Args {
 const USAGE: &str = "Usage: sharc [-hVd] [-l LEVEL] [-f FILE] [-o FILE] [VERB...]";
 const HELP_MESSAGE: &str = "\x1b[1mDESCRIPTION\x1b[0m
     The compiler for the Shard Programming Language.
-    Documentation can be found at https://shardlang.org/doc/
+    Documentation can be found at https://nh3.dev/shard/
 
 \x1b[1mOPTIONS\x1b[0m
     -h, --help                  `-h` only shows the usage 
     -v, --version               Show version
     -d, --debug                 Print debug information
         Shows a ton of information not intended for mere mortals.
+    -r, --repl                  Run sharc in repl mode
     -l, --level LEVEL           [fatal|error|warn|note|silent] (or 0-4)
         (default: warn)
-    -f, --file FILE             File to compile
-        (default: main.shd)
-    -o, --output FILE           File to write to
-        (default: main.asm)";
+    -o, --output FILE           File to write mir output to
+        (default: main.smir)";
 
 // FIXME: placeholder, someone make a good one pls
 const SHARK_ASCII: &str = r#"                                 ,-

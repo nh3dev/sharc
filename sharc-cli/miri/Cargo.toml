@@ -4,4 +4,5 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-sharc = { path = "../../sharc" }
+sharc.workspace   = true
+colored.workspace = true
