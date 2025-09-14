@@ -26,8 +26,10 @@ mod span;
 mod bigint;
 
 pub use report::{Report, ReportKind};
-pub use mirgen::mir;
+pub use mirgen::{mir, bytecode};
 pub use bigint::IBig;
+
+const VERSION: (u32, u8) = (1, 0);
 
 
 struct Reporter<'src> {
@@ -84,7 +86,7 @@ impl<'src> Compiler<'src> {
 
 	/// DO NOT drop the returned Bump before the mir. its used to allocate the mir and you'll get a 
 	/// use after free :L. I dont think rust has a way to enforce this, if there is let me know!
-	pub fn compile<'b>(mut self, code: &'src str, filename: &'src str) -> Result<(Vec<mirgen::mir::Node<'b>>, bump::Bump), usize> {
+	pub fn compile<'b>(mut self, code: &'src str, filename: &'src str) -> Result<mirgen::mir::Mir<'b>, usize> {
 		self.reporter.filename = filename;
 		self.reporter.code     = code;
 
@@ -124,11 +126,11 @@ impl<'src> Compiler<'src> {
 		}
 
 
-		let mir = mirgen::Analyzer::process(hir, &mut self.reporter);
+		let mir = mirgen::Analyzer::process(Some(filename), hir, &mut self.reporter);
 
 		if self.opts.debug { 
 			eprintln!("\n{}", "MIRGEN".bold());
-			mir.0.iter().for_each(|n| eprintln!("{n:#}"));
+			eprintln!("{mir}");
 		}
 
 		if self.reporter.count > 0 { 

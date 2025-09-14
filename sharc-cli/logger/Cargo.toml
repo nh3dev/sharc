@@ -1,11 +1,8 @@
 [package]
-name    = "sharc"
+name    = "logger"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
 colored.workspace = true
-bump  = { path = "bump" }
-
-[features]
-backtrace = []
+sharc.workspace   = true

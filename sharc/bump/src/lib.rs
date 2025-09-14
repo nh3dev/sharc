@@ -12,7 +12,7 @@ mod r#ref;
 pub use boxed::{Box, BoxIter};
 pub use rc::Rc;
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
 	fn mmap(addr: *mut u8, length: usize, prot: i32, flags: i32, fd: i32, offset: usize) -> *mut u8;
 	fn munmap(addr: *mut u8, length: usize) -> i32;
 	fn mremap(addr: *mut u8, old_size: usize, new_size: usize, flags: i32) -> *mut u8;
@@ -130,6 +130,10 @@ impl Bump {
 	}
 
 	pub fn alloc_size<T>(&self, size: usize) -> *mut [T] {
+		if size == 0 {
+			return &mut [];
+		}
+
 		if self.chunk.get().is_none() {
 			self.make_new_chunk(size);
 		}

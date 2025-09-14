@@ -18,7 +18,7 @@ impl Display for Span {
 }
 
 impl Span {
-	pub fn new(start: usize) -> Self {
+	pub const fn new(start: usize) -> Self {
 		Self { start, end: start }
 	}
 
@@ -42,7 +42,7 @@ impl Span {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Sp<T> {
 	pub span: Span,
 	pub elem: T,

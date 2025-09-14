@@ -12,6 +12,7 @@ pub fn get_progress_msg() -> &'static str {
 	const MSGS: &[&str] = &[ 
 		"Sharding...",
 		"Collecting garbage...",
+		"Spreading garbage...",
 	];
 
 	MSGS[rand() as usize % MSGS.len()]
@@ -23,6 +24,10 @@ pub fn get_fail_msg() -> &'static str {
 		"9 + 10 = 21",
 		"next time you're getting rm -rf'd",
 		"developer we have a bug",
+		"shardn't :(",
+		"shard failed",
+		"lost and (never) found",
+		"why do you believe me?!?!?",
 	];
 
 	MSGS[rand() as usize % MSGS.len()]

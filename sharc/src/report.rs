@@ -8,6 +8,7 @@ pub enum ReportKind {
 	_WARNING_,
 	_ERROR_,
 	ArgumentParserError,
+	Unimplemented,
 
 	// Lexer
 	UnexpectedCharacter,
@@ -21,16 +22,19 @@ pub enum ReportKind {
 	InvalidNumber,
 
 	// typeinf
-	TypeError, // instead
-	UnexpectedType,
+	TypeError,
 	UnexpectedGenericCount,
 	NoSuchTrait,
+	UndefinedIdentifier,
+	InvalidFunctionType,
+	TypeAnnotationRequired,
+	InvalidArity,
+	ConstEvalError,
 
 	// mirgen
 	NodeNotAnExpr,	
 
-	// General
-	IOError,
+	RuntimeError,
 	SyntaxError,
 
 	_FATAL_,

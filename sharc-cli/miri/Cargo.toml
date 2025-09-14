@@ -6,3 +6,5 @@ edition.workspace = true
 [dependencies]
 sharc.workspace   = true
 colored.workspace = true
+logger            = { path = "../logger" }
+libffi = "4.1"

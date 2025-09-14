@@ -357,8 +357,10 @@ impl<'src, 'b, 'r> Parser<'src, 'b, 'r> {
 	}
 
 	fn parse_assign(&mut self, stat: bool) -> Result<'src, Sp<Node<'src, 'b>>> {
+		let start = self.current().span;
 		self.advance();
-		let Sp { elem: Node::Ident { lit, gener }, span } = self.parse_ident()?
+
+		let Node::Ident { lit, gener } = self.parse_ident()?.elem
 			else { unreachable!() };
 
 		let (ty, expr) = match self.current().kind {
@@ -383,7 +385,7 @@ impl<'src, 'b, 'r> Parser<'src, 'b, 'r> {
 			ty, stat, gener,
 			expr:  self.bump.alloc(expr), 
 			ident: lit,
-		}.span(span.extend(&self.current().span)))
+		}.span(start.extend(&self.current().span)))
 	}
 
 	fn parse_atom(&mut self) -> Result<'src, Sp<Node<'src, 'b>>> {
@@ -393,9 +395,42 @@ impl<'src, 'b, 'r> Parser<'src, 'b, 'r> {
 		Ok(match token.kind {
 			TokenKind::Quote => Node::Quote(token.text).span(token.span),
 			TokenKind::Identifier => Node::Primitive(match token.text {
+				// FIXME: not an atom, move this to expr
+				"fn"    => {
+					self.advance_if(|t| matches!(t, TokenKind::LParen)).then_some(())
+						.ok_or_else(|| ReportKind::UnexpectedToken
+							.title("Expected '(' after 'fn'")
+							.span(self.current().span))?;
+
+					let mut args = Vec::new();
+
+					loop {
+						match self.current().kind {
+							TokenKind::EOF => return ReportKind::UnexpectedToken
+								.title("Expected ')', got EOF")
+								.span(self.current().span).as_err(),
+							TokenKind::RParen => {
+								self.advance();
+								break;
+							},
+							TokenKind::Comma => self.advance(),
+							_ => args.push(self.parse_expr(0)?),
+						}
+					}
+
+					let ret = match self.current().kind {
+						TokenKind::Colon => {
+							self.advance();
+							let expr = self.parse_expr(0)?;
+							Some(self.bump.alloc(expr))
+						},
+						_ => None,
+					};
+
+					Primitive::Fn(self.bump.alloc_from_vec(args), ret)
+				},
 				"isize" => Primitive::Isize,
 				"usize" => Primitive::Usize,
-				"any"   => Primitive::Any,
 				"none"  => Primitive::None,
 				"never" => Primitive::Never,
 				"type"  => Primitive::Type,

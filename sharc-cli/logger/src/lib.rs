@@ -6,10 +6,9 @@ pub use report::Report;
 use std::fmt::Display;
 use std::io::{self, Write};
 
-pub struct Logger<'lock> {
+pub struct Logger {
 	progress: Option<ProgressBar>,
 	footer:   Option<String>,
-	stderr:   io::StderrLock<'lock>,
 }
 
 pub struct ProgressBar {
@@ -63,18 +62,17 @@ impl Display for ProgressBar {
 	}
 }
 
-impl Logger<'_> {
+impl Logger {
 	pub fn new() -> Self {
 		Self {
 			progress: None,
 			footer:   None,
-			stderr:   io::stderr().lock(),
 		}
 	}
 
 	pub fn log(&mut self, msg: impl Display) {
 		self.clear();
-		write!(self.stderr, "{msg}").unwrap();
+		eprint!("{msg}");
 		self.draw();
 	}
 
@@ -109,15 +107,15 @@ impl Logger<'_> {
 	}
 
 	fn draw(&mut self) {
-		if let Some(f) = &self.footer   { write!(self.stderr, "{f}").unwrap(); }
-		if let Some(p) = &self.progress { write!(self.stderr, "{p}").unwrap(); }
-		self.stderr.flush().unwrap();
+		if let Some(f) = &self.footer   { eprint!("{f}"); }
+		if let Some(p) = &self.progress { eprint!("{p}"); }
+		std::io::stderr().flush().unwrap();
 	}
 
 	fn clear(&mut self) {
 		let offset = 
 			self.progress.as_ref().map_or(0, |_| 1) 
 			+ self.footer.as_ref().map_or(0, |f| f.matches('\n').count());
-		write!(self.stderr, "{}", "\x1B[1A\x1B[2K".repeat(offset)).unwrap();
+		eprint!("{}", "\x1B[1A\x1B[2K".repeat(offset));
 	}
 }

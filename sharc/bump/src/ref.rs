@@ -86,6 +86,16 @@ impl crate::Bump {
 			std::slice::from_raw_parts(data, len)
 		}
 	}
+
+	pub fn try_alloc_from_iter<'bump, T, E>(&self, iter: impl ExactSizeIterator<Item = Result<T, E>>) -> Result<&'bump [T], E> {
+		let len = iter.len();
+		let data = self.alloc_size::<T>(len * std::mem::size_of::<T>()) as *mut T;
+
+		unsafe {
+			iter.enumerate().try_for_each(|(i, val)| Ok(std::ptr::write(data.add(i), val?)))?;
+			Ok(std::slice::from_raw_parts(data, len))
+		}
+	}
 }
 
 impl crate::Bump {
@@ -174,6 +184,16 @@ impl crate::Bump {
 		unsafe {
 			iter.enumerate().for_each(|(i, val)| std::ptr::write(data.add(i), val));
 			std::slice::from_raw_parts_mut(data, len)
+		}
+	}
+
+	pub fn try_alloc_from_iter_mut<'bump, T, E>(&self, iter: impl ExactSizeIterator<Item = Result<T, E>>) -> Result<&'bump mut [T], E> {
+		let len = iter.len();
+		let data = self.alloc_size::<T>(len * std::mem::size_of::<T>()) as *mut T;
+
+		unsafe {
+			iter.enumerate().try_for_each(|(i, val)| Ok(std::ptr::write(data.add(i), val?)))?;
+			Ok(std::slice::from_raw_parts_mut(data, len))
 		}
 	}
 }

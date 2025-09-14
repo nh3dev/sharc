@@ -86,6 +86,11 @@ impl crate::Bump {
 pub struct Box<'bump, T: ?Sized>(pub(crate) &'bump mut T);
 
 impl<T: ?Sized> Box<'_, T> {
+	#[inline]
+	pub fn from_static(val: &'static mut T) -> Self {
+		Self(val)
+	}
+
 	// this is uhhhh unsafe buuut only if the allocator gets dropped before the box
 	// which shouldnt happen in the usual case
 	#[inline]

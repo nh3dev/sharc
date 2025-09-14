@@ -3,9 +3,8 @@
 
 use bump::Bump;
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone, Copy)]
-pub struct IBig<'bump>(&'bump [u64]);
+pub struct IBig<'bump>(pub &'bump [u64]);
 
 impl IBig<'_> {
 	pub fn to_vec(&self) -> Vec<u64> {

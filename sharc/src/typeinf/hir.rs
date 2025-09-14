@@ -7,34 +7,34 @@ use crate::span::Sp;
 pub enum Node<'src, 'b> {
 	Let {
 		ident: Sp<&'src str>,
-		ty:    Option<&'b Ty<'src, 'b, Sp<Node<'src, 'b>>>>,
-		gener: &'b [Sp<Node<'src, 'b>>],
+		ty:    Option<&'b Type<'src, 'b>>,
+		gener: &'b [&'b Type<'src, 'b>], // TODO bounds, default vals
 		expr:  &'b Ty<'src, 'b, Sp<Node<'src, 'b>>>,
-		stat:  bool, // static
+		stat:  bool, // static // maybe 
 	},
 
 	Ident {
 		lit:   Sp<&'src str>, 
-		gener: &'b [Sp<Node<'src, 'b>>],
+		gener: &'b [&'b Type<'src, 'b>], // TODO bounds, default vals
 	},
 	StrLit(&'b str),
 	IntLit(crate::bigint::IBig<'b>),
-	ArrayLit(&'b [Sp<Node<'src, 'b>>], Option<u64>), // [u8], [20, 3, 8], [u16; 10]
-	UnionLit(&'b [Sp<Node<'src, 'b>>]),  // ('foo | u8 | foo: u8)
-	StructLit(&'b [Sp<Node<'src, 'b>>]), // (u8, 20, foo: 20, foo: u8)
+	ArrayLit(&'b [Ty<'src, 'b, Sp<Node<'src, 'b>>>], Option<u64>), // [u8], [20, 3, 8], [u16; 10]
+	UnionLit(&'b [Ty<'src, 'b, Sp<Node<'src, 'b>>>]),  // ('foo | u8 | foo: u8)
+	StructLit(&'b [Ty<'src, 'b, Sp<Node<'src, 'b>>>]), // (u8, 20, foo: 20, foo: u8)
 	Primitive(&'b Type<'src, 'b>),
 	Quote(&'src str), // 'foo
 
 	FuncCall {
 		lhs:  &'b Ty<'src, 'b, Sp<Node<'src, 'b>>>,
-		args: &'b [Sp<Node<'src, 'b>>],
+		args: &'b [Ty<'src, 'b, Sp<Node<'src, 'b>>>],
 	},
 	Lambda {
 		args:   &'b [LambdaArg<'src, 'b>],
-		ret:    Option<&'b Ty<'src, 'b, Sp<Node<'src, 'b>>>>,
+		ret:    Option<&'b Type<'src, 'b>>,
 		body:   Option<&'b Ty<'src, 'b, Sp<Node<'src, 'b>>>>,
-		ext:    Option<Sp<&'src str>>,
-		export: Option<Sp<&'src str>>,
+		ext:    Option<Sp<&'b str>>,
+		export: Option<Sp<&'b str>>,
 	},
 
 	Block(&'b [Sp<Node<'src, 'b>>]),
@@ -57,7 +57,7 @@ pub enum Node<'src, 'b> {
 #[derive(Debug)]
 pub struct LambdaArg<'src, 'b> {
 	pub ident:   Sp<&'src str>,
-	pub ty:      Option<Ty<'src, 'b, Sp<Node<'src, 'b>>>>,
+	pub ty:      Option<&'b Type<'src, 'b>>,
 	pub default: Option<Ty<'src, 'b, Sp<Node<'src, 'b>>>>,
 }
 
@@ -80,8 +80,14 @@ pub struct Type<'src, 'b> {
 	pub kind:  TypeKind<'src, 'b>,
 }
 
+impl PartialEq for Type<'_, '_> {
+	fn eq(&self, other: &Self) -> bool {
+		self.kind == other.kind
+	}
+}
+
 impl<'src, 'b> Type<'src, 'b> {
-	pub fn new(kind: TypeKind<'src, 'b>) -> Self {
+	pub const fn new(kind: TypeKind<'src, 'b>) -> Self {
 		Type { ident: None, kind }
 	}
 
@@ -90,18 +96,18 @@ impl<'src, 'b> Type<'src, 'b> {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum TypeKind<'src, 'b> {
 	Generic(usize),
 
-	ArrayLit(&'b [&'b Type<'src, 'b>], Option<u64>),
-	UnionLit(&'b [&'b Type<'src, 'b>]),
-	StructLit(&'b [&'b Type<'src, 'b>]),
+	Array(&'b Type<'src, 'b>, Option<u64>),
+	Union(&'b [&'b Type<'src, 'b>]),
+	Struct(&'b [&'b Type<'src, 'b>]),
 	U(u32), I(u32), B(u32), F(u32),
 	Ref(&'b Type<'src, 'b>),
 	Mut(&'b Type<'src, 'b>),
 	Usize, Isize,
-	Any, None, Never, Type,
+	None, Never, Type,
 	// Type(Rc<'b, Type<'src, 'b>>),
 	Fn(&'b [&'b Type<'src, 'b>], Option<&'b Type<'src, 'b>>),
 }
@@ -236,17 +242,13 @@ impl fmt::Display for TypeKind<'_, '_> {
 		}
 
 		match self {
-			Self::ArrayLit(arr, size) => {
-				write!(f, "[")?;
-				for (i, item) in arr.iter().enumerate() {
-					write!(f, "{item}")?;
-					if i != arr.len() - 1 { write!(f, ", ")?; }
-				}
+			Self::Array(arr, size) => {
+				write!(f, "[{arr}")?;
 				if let Some(size) = size { write!(f, "; {size}")?; }
 				write!(f, "]")
 			},
-			Self::UnionLit(variants) => write!(f, "({})", join_tostring(&**variants, " | ")),
-			Self::StructLit(fields)  => write!(f, "({})", join_tostring(&**fields, ", ")),
+			Self::Union(variants) => write!(f, "({})", join_tostring(&**variants, " | ")),
+			Self::Struct(fields)  => write!(f, "({})", join_tostring(&**fields, ", ")),
 			Self::Fn(args, ret) => {
 				write!(f, "{}(", "fn".purple())?;
 				for (i, arg) in args.iter().enumerate() {
@@ -264,7 +266,6 @@ impl fmt::Display for TypeKind<'_, '_> {
 				Self::F(f)  => format!("f{f}"),
 				Self::Usize => String::from("usize"),
 				Self::Isize => String::from("isize"),
-				Self::Any   => String::from("any"),
 				Self::None  => String::from("none"),
 				Self::Never => String::from("never"),
 				Self::Type  => String::from("type"),

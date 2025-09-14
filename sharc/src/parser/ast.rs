@@ -35,8 +35,8 @@ pub enum Node<'src, 'b> {
 		args:   &'b [LambdaArg<'src, 'b>],
 		ret:    Option<&'b Sp<Node<'src, 'b>>>,
 		body:   Option<&'b Sp<Node<'src, 'b>>>,
-		ext:    Option<Sp<&'src str>>,
-		export: Option<Sp<&'src str>>,
+		ext:    Option<Sp<&'b str>>,
+		export: Option<Sp<&'b str>>,
 	},
 
 	Block(&'b [Sp<Node<'src, 'b>>]),
@@ -73,8 +73,7 @@ pub struct LambdaArg<'src, 'b> {
 pub enum Primitive<'src, 'b> {
 	U(u32), I(u32), B(u32), F(u32),
 	Usize, Isize,
-	Any, None, Never,
-	Type,
+	None, Never, Type,
 	Fn(&'b [Sp<Node<'src, 'b>>], Option<&'b Sp<Node<'src, 'b>>>),
 }
 
@@ -86,7 +85,7 @@ impl Display for Node<'_, '_> {
 
 		match self {
 			Self::Let { ident, ty, gener, expr, stat } =>
-				write!(f, "{} {ident}{}{} = {expr}",
+				write!(f, "{} {ident}{}{} = {expr};",
 					if *stat { "static" } else { "let" }.yellow().dimmed(),
 					if gener.is_empty() { String::new() } else { format!("<{}>", join_tostring(&**gener, ", ")) },
 					if let Some(ty) = ty { format!(": {ty}") } else { String::new() } ),
@@ -197,7 +196,6 @@ impl Display for Primitive<'_, '_> {
 			Self::F(i)   => format!("f{i}"),
 			Self::Usize  => String::from("usize"),
 			Self::Isize  => String::from("isize"),
-			Self::Any    => String::from("any"),
 			Self::None   => String::from("none"),
 			Self::Never  => String::from("never"),
 			Self::Type   => String::from("type"),
