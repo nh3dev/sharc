@@ -1,11 +1,26 @@
 use std::fmt::Debug;
 use std::process::exit;
 
+use sharc::report::{Reportable, Level};
+
+#[derive(Debug, Default)]
+struct Error;
+
+impl std::fmt::Display for Error {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "ArgumentParserError")
+	}
+}
+
+impl Reportable for Error {
+	fn level(&self) -> Level { Level::Error }
+}
+
 macro_rules! error {
 	($($ident:tt)*) => {{
-		eprintln!("{}", logger::Report(sharc::ReportKind::ArgumentParserError
+		eprintln!("{}", Error
 			.title(format!($($ident)*))
-			.note("Run with \x1b[1m--help\x1b[0m for usage information")));
+			.note("Run with \x1b[1m--help\x1b[0m for usage information"));
 		exit(1);
 	}};
 }

@@ -15,9 +15,41 @@ impl IBig<'_> {
 		Self(bump.alloc_sized_slice([i]))
 	}
 
+	pub fn try_as_u32(&self) -> Option<u32> {
+		match self.0.len() {
+			0 => Some(0),
+			1 if self.0[0] <= u32::MAX as u64 => Some(self.0[0] as u32),
+			_ => None,
+		}
+	}
+
 	pub fn try_as_u64(&self) -> Option<u64> {
-		if self.0.len() > 1 { return None; }
-		Some(self.0[0])
+		match self.0.len() {
+			0 => Some(0),
+			1 => Some(self.0[0]),
+			2 => {
+				if self.0[1] == 1 && self.0[0] <= 8446744073709551615 {
+					return Some(self.0[0] + 10000000000000000000);
+				}
+				None
+			},
+			_ => None,
+		}
+	}
+
+	pub fn try_as_u128(&self) -> Option<u128> {
+		match self.0.len() {
+			0 => Some(0),
+			1 => Some(self.0[0] as u128),
+			2 => Some((self.0[1] as u128) << 64 | (self.0[0] as u128)),
+			3 => {
+				if self.0[3] == 3 && self.0[2] <= 4028236692093846346 && self.0[1] <= 3374607431768211455 {
+					return format!("{}{:0>19}{:0>19}", self.0[2], self.0[1], self.0[0]).parse::<u128>().ok();
+				}
+				None
+			},
+			_ => None,
+		}
 	}
 
 	pub fn from_str(bump: &Bump, mut s: &str) -> Result<Self, std::num::ParseIntError> {

@@ -52,20 +52,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "logger"
-version = "0.1.0"
-dependencies = [
- "colored",
- "sharc",
-]
-
-[[package]]
 name = "miri"
 version = "0.1.0"
 dependencies = [
  "colored",
  "libffi",
- "logger",
  "sharc",
 ]
 
@@ -82,7 +73,6 @@ name = "sharc-cli"
 version = "0.1.0"
 dependencies = [
  "colored",
- "logger",
  "miri",
  "sharc",
 ]

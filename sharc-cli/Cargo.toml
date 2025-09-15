@@ -7,7 +7,6 @@ edition.workspace = true
 colored.workspace = true
 sharc.workspace   = true
 miri              = { path = "miri" }
-logger            = { path = "logger" }
 
 [features]
 backtrace = ["sharc/backtrace"]

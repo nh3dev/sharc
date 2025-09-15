@@ -34,7 +34,7 @@ mod ser {
 				buf.write_all(&[2])?;
 				serialize_valid(*to, buf)?;
 				serialize_type(ty, buf)?;
-				serialize_expr(from, buf)
+				serialize_var(from, buf)
 			},
 			Node::Dbg { id, ident } => {
 				buf.write_all(&[3])?;
@@ -269,7 +269,7 @@ mod de {
 			2 => Node::Store { 
 				to:   deserialize_valid(buf)?,
 				ty:   deserialize_type(bump, buf)?,
-				from: deserialize_expr(bump, buf)?,
+				from: deserialize_var(bump, buf)?,
 			},
 			3 => Node::Dbg { 
 				id:    deserialize_valid(buf)?,

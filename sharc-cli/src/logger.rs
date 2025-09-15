@@ -1,8 +1,5 @@
 // TODO: iteraror type for progress bar then .next() for next step
 
-mod report;
-pub use report::Report;
-
 use std::fmt::Display;
 use std::io::{self, Write};
 

@@ -15,6 +15,11 @@ pub enum Node<'src, 'b> {
 		stat:  bool, // static
 	},
 
+	Loop {
+		initlet: Option<&'b Sp<Node<'src, 'b>>>,
+		block:   &'b [Sp<Node<'src, 'b>>],
+	},
+
 	Ident {
 		lit:   Sp<&'src str>, 
 		gener: &'b [Sp<Node<'src, 'b>>],
@@ -89,6 +94,24 @@ impl Display for Node<'_, '_> {
 					if *stat { "static" } else { "let" }.yellow().dimmed(),
 					if gener.is_empty() { String::new() } else { format!("<{}>", join_tostring(&**gener, ", ")) },
 					if let Some(ty) = ty { format!(": {ty}") } else { String::new() } ),
+
+			Self::Loop { initlet, block } => {
+				write!(f, "{} ", "loop".yellow().dimmed())?;
+				if let Some(initlet) = initlet {
+					write!(f, "{initlet} ")?;
+				} 
+
+				match block {
+					[]  => write!(f, "{{}}"),
+					ref n => {
+						writeln!(f, "{{")?;
+						n.iter().enumerate().try_for_each(
+							|(i, stmt)| writeln!(f, "  {stmt}{}",
+								if i == n.len() - 1 { "" } else { ";" }))?;
+						write!(f, "}}")
+					},
+				}
+			},
 
 			Self::Ident { lit, gener } => 
 				write!(f, "{}{}", lit.normal(), 

@@ -45,7 +45,7 @@ pub enum Node<'b> {
 	Store {
 		to:   ValId,
 		ty:   &'b Type<'b>,
-		from: Expr<'b>,
+		from: Var<'b>,
 	},
 	Dbg { 
 		id:    ValId,

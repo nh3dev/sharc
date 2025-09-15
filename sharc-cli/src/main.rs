@@ -4,10 +4,11 @@ use sharc::bump::Bump;
 
 mod args;
 mod motd;
+mod logger;
 
 fn compile_mir<'b>(conf: sharc::CompilerOptions, code: &str, filename: Option<&str>) -> Result<sharc::mir::Mir<'b>, ()> {
 	match sharc::Compiler::new(conf)
-		.report_callback(|r| LOGGER.lock().unwrap().log(logger::Report(r)))
+		.report_callback(|r| LOGGER.lock().unwrap().log(r))
 		.compile(code, filename.unwrap_or("<repl>")) {
 		Ok(mir) => Ok(mir),
 		Err(e) => {
@@ -45,7 +46,10 @@ fn main() {
 					eprintln!("\n{}", "MIRI".bold());
 				}
 
-				println!("{}", rt.run(mir));
+				match rt.run(mir) {
+					Ok(v)  => println!("{v}"),
+					Err(e) => LOGGER.lock().unwrap().log(e),
+				}
 			}
 		},
 		args::Action::Miri { file: Some(f) } => {
@@ -74,7 +78,10 @@ fn main() {
 				eprintln!("{}", "MIRI".bold());
 			}
 
-			println!("{}", miri::Runtime::new().run(mir));
+			match miri::Runtime::new().run(mir) {
+				Ok(v)  => println!("{v}"),
+				Err(e) => LOGGER.lock().unwrap().log(e),
+			}
 		},
 		args::Action::Build { file, outfile } => {
 			let code = std::fs::read_to_string(file).unwrap();

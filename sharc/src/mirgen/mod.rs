@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::report::{Result, ReportKind};
+use crate::report::{Result, ReportKind, Reportable};
 use crate::span::Sp;
 use crate::typeinf::hir;
 
@@ -13,7 +13,7 @@ use colored::Colorize;
 use bump::Bump;
 
 pub struct Analyzer<'r, 'src, 'bo, 'b> {
-	reporter: &'r mut crate::Reporter<'src>,
+	reporter: &'r mut crate::Reporter,
 	bump:     Bump,
 	bump_lt:  std::marker::PhantomData<&'b Bump>,
 	bumpo_lt: std::marker::PhantomData<&'bo Bump>,
@@ -59,7 +59,7 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 	pub fn process(
 		origin: Option<&str>,
 		(hir, hir_bump): (Vec<hir::Ty<'src, 'bo, Sp<hir::Node<'src, 'bo>>>>, Bump),
-		reporter: &'r mut crate::Reporter<'src>
+		reporter: &'r mut crate::Reporter
 	) -> mir::Mir<'b> {
 		let mut analyzer = Self { 
 			reporter, 
@@ -87,7 +87,7 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 	}
 
 	pub fn process_node(&mut self, ret: bool, node: &hir::Ty<'src, 'bo, Sp<hir::Node<'src, 'bo>>>) 
-		-> Result<'src, (Var<'b>, &'b Type<'b>, Vec<Node<'b>>)> {
+		-> Result<(Var<'b>, &'b Type<'b>, Vec<Node<'b>>)> {
 		let mut nodes = Vec::new();
 
 		let ty = self.process_type(node.ty);
@@ -162,6 +162,33 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 					},
 					Var::None => unreachable!("let expr cannot be none"),
 				}
+			},
+			hir::Node::Store(lhs, rhs) => {
+				let (lvar, lty, lnodes) = self.process_node(false, lhs)?;
+				let (rvar, _, rnodes) = self.process_node(false, rhs)?;
+
+				let id = match lvar {
+					Var::None => return ReportKind::SyntaxError
+						.title("cannot store to an expr that does not yield a value")
+						.span(lhs.elem.span)
+						.as_err(),
+					Var::Imm(_) => return ReportKind::SyntaxError
+						.title("cannot store to an immediate")
+						.span(lhs.elem.span)
+						.as_err(),
+					Var::Local(id) => id,
+				};
+
+				nodes.extend(lnodes);
+				nodes.extend(rnodes);
+
+				nodes.push(Node::Store { 
+					to:   id, 
+					ty:   lty, 
+					from: rvar, 
+				});
+
+				Var::None
 			},
 			hir::Node::Ident { lit, gener } => {
 				let (valid, _) = self.find_symbol(lit.elem).ok_or_else(|| 

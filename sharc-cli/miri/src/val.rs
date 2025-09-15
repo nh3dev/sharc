@@ -2,9 +2,12 @@ use std::ffi::c_void;
 use std::fmt::{self, Display};
 
 use sharc::mir::{Var, Type as MirType};
+use sharc::report::Reportable;
 use libffi::middle::{Type as FfiType, Arg};
 use colored::Colorize;
 use sharc::IBig;
+
+use crate::error::{Result, MiriError};
 
 #[derive(Debug, Clone)]
 pub struct Value {
@@ -23,8 +26,16 @@ impl Value {
 
 	pub fn add(lhs: &Self, rhs: &Self, out: Option<Type>) -> Self {
 		match (&lhs.val, &rhs.val) {
-			(Val::Int(a), Val::Int(b)) =>
-				Value::new(Val::Int(a.overflowing_add(*b).0), out.unwrap_or(lhs.ty.clone())),
+			(Val::Int8(a), Val::Int8(b)) =>
+				Value::new(Val::Int8(a.overflowing_add(*b).0), out.unwrap_or(lhs.ty.clone())),
+			(Val::Int16(a), Val::Int16(b)) =>
+				Value::new(Val::Int16(a.overflowing_add(*b).0), out.unwrap_or(lhs.ty.clone())),
+			(Val::Int32(a), Val::Int32(b)) =>
+				Value::new(Val::Int32(a.overflowing_add(*b).0), out.unwrap_or(lhs.ty.clone())),
+			(Val::Int64(a), Val::Int64(b)) =>
+				Value::new(Val::Int64(a.overflowing_add(*b).0), out.unwrap_or(lhs.ty.clone())),
+			(Val::Int128(a), Val::Int128(b)) =>
+				Value::new(Val::Int128(a.overflowing_add(*b).0), out.unwrap_or(lhs.ty.clone())),
 			_ => todo!(),
 		}
 	}
@@ -90,8 +101,13 @@ impl Type {
 #[derive(Debug, Clone)]
 pub enum Val {
 	None,
-	Int(u64), // TODO: change to u128 if needed
+	Int8(u8),
+	Int16(u16),
+	Int32(u32),
+	Int64(u64),
+	Int128(u128),
 	CFn(libffi::middle::Cif, libffi::middle::CodePtr),
+	FatPtr(*mut c_void, usize),
 	Ptr(*mut c_void),
 
 	Ret(usize),
@@ -100,17 +116,35 @@ pub enum Val {
 // needed so we can have libffi func calls return
 pub union RawVal {
 	none: (),
-	int:  u64,
+	int8: u8,
+	int16: u16,
+	int32: u32,
+	int64: u64,
+	int128: u128,
+	fat_ptr: (*mut c_void, usize),
 	ptr:  *mut c_void,
 	cfn:  libffi::middle::CodePtr,
 }
 
 impl RawVal {
-	pub fn to_val(self, ty: &Type) -> Val {
+	pub fn to_val(self, ty: &Type) -> Result<Val> {
 		unsafe {
-			match ty {
+			Ok(match ty {
 				Type::None  => Val::None,
-				Type::U(_)  | Type::I(_) | Type::Usize | Type::Isize => Val::Int(self.int),
+				Type::U(..8)  | Type::I(..8)   => Val::Int8(self.int8),
+				Type::U(..16) | Type::I(..16)  => Val::Int16(self.int16),
+				Type::U(..32) | Type::I(..32)  => Val::Int32(self.int32),
+				Type::U(..64) | Type::I(..64)  => Val::Int64(self.int64),
+				Type::U(..128)| Type::I(..128) => Val::Int128(self.int128),
+				Type::Usize   | Type::Isize    => match std::mem::size_of::<usize>() {
+					..16  => Val::Int16(self.int16),
+					..32  => Val::Int32(self.int32),
+					..64  => Val::Int64(self.int64),
+					..128 => Val::Int128(self.int128),
+					_     => unreachable!(),
+				},
+				Type::U(_)    | Type::I(_)     => panic!("unsupported integer size for rawval"),
+
 				Type::Fn(args, ret) => Val::CFn(
 					libffi::middle::Cif::new(
 						args.iter().map(|t| t.to_libffi()),
@@ -118,10 +152,16 @@ impl RawVal {
 					),
 					self.cfn
 				),
-				Type::Ptr(_) | Type::Array(_, _) => Val::Ptr(self.ptr),
-				Type::Never => panic!("cannot convert never type to value"),
+				Type::Ptr(_) => Val::Ptr(self.ptr),
+				Type::Never => 
+				return MiriError::InvalidInstruction
+					.title("cannot convert a rawval to a value of type never")
+					.as_err(),
 				Type::U(_) | Type::I(_) => panic!(),
-			}
+
+				// TODO: somehow impl sized arrays
+				Type::Array(_, _) => todo!(),
+			})
 		}
 	}
 }
@@ -129,12 +169,28 @@ impl RawVal {
 impl Val {
 	pub fn as_arg(&self) -> Arg {
 		match self {
-			Self::None   => Arg::new(&()),
-			Self::Int(v) => Arg::new(v),
-			Self::CFn(_, ptr) => Arg::new(ptr),
-			Self::Ptr(s) => Arg::new(s),
-			Self::Ret(_) => panic!(),
+			Self::None      => Arg::new(&()),
+			Self::Int8(v)   => Arg::new(v),
+			Self::Int16(v)  => Arg::new(v),
+			Self::Int32(v)  => Arg::new(v),
+			Self::Int64(v)  => Arg::new(v),
+			Self::Int128(v) => Arg::new(v),
+			Self::CFn(_, p) => Arg::new(p),
+			Self::Ptr(s)    => Arg::new(s),
+			Self::FatPtr(p, m) => Arg::new(&(*p, *m)),
+			Self::Ret(_)    => panic!(),
 		}
+	}
+
+	pub fn from_ibig(i: &IBig, ty: &Type) -> Option<Self> {
+		Some(match ty {
+			Type::U(..8)   | Type::I(..8)   => Val::Int8(i.try_as_u32()?.try_into().ok()?),
+			Type::U(..16)  | Type::I(..16)  => Val::Int16(i.try_as_u32()?.try_into().ok()?),
+			Type::U(..32)  | Type::I(..32)  => Val::Int32(i.try_as_u32()?),
+			Type::U(..64)  | Type::I(..64)  => Val::Int64(i.try_as_u64()?),
+			Type::U(..128) | Type::I(..128) => Val::Int128(i.try_as_u128()?),
+			_ => return None,
+		})
 	}
 }
 
@@ -148,11 +204,16 @@ impl Display for Val {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
 			Val::None      => write!(f, "none"),
-			Val::Int(v)    => write!(f, "{v}"),
+			Val::Int8(v)   => write!(f, "{v}"),
+			Val::Int16(v)  => write!(f, "{v}"),
+			Val::Int32(v)  => write!(f, "{v}"),
+			Val::Int64(v)  => write!(f, "{v}"),
+			Val::Int128(v) => write!(f, "{v}"),
 			Val::CFn(_, p) => write!(f, "cfn@{p:p}"),
 			Val::Ptr(s)    => write!(f, "{s:p}"),
 			// warn user if this prints
 			Val::Ret(base) => write!(f, "{{ret: {base}}}"),
+			Val::FatPtr(p, m) => write!(f, "({p:p}; {m})"),
 		}
 	}
 }

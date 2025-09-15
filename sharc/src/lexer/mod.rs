@@ -2,12 +2,12 @@ mod token;
 pub use token::{Token, TokenKind};
 
 use crate::Reporter;
-use crate::report::{ReportKind, Report, Result};
+use crate::report::{ReportKind, Report, Result, Reportable};
 use crate::span::Span;
 
 #[allow(clippy::complexity)]
 pub struct Lexer<'src, 'r> {
-	reporter: &'r mut Reporter<'src>,
+	reporter: &'r mut Reporter,
 	contents: &'src str,
 	iter:     std::iter::Peekable<std::iter::Map<std::str::CharIndices<'src>, fn((usize, char)) -> usize>>,
 	index:    usize,
@@ -15,7 +15,7 @@ pub struct Lexer<'src, 'r> {
 }
 
 impl<'src, 'r> Lexer<'src, 'r> {
-	fn log(&mut self, report: Report<'src>) {
+	fn log(&mut self, report: Report<ReportKind>) {
 		self.reporter.nom(report);
 	}
 
@@ -56,7 +56,7 @@ impl<'src, 'r> Lexer<'src, 'r> {
 		self.push_token(kind, index, self.index);
 	}
 
-	pub fn tokenize(contents: &'src str, reporter: &'r mut Reporter<'src>) -> Vec<Token<'src>> {
+	pub fn tokenize(contents: &'src str, reporter: &'r mut Reporter) -> Vec<Token<'src>> {
 		let mut lex = Self {
 			contents, reporter,
 			index: 0,
@@ -77,7 +77,7 @@ impl<'src, 'r> Lexer<'src, 'r> {
 		lex.tokens
 	}
 
-	fn tokenize_inner(&mut self, index: usize, current: &'src str) -> Result<'src, ()> {
+	fn tokenize_inner(&mut self, index: usize, current: &'src str) -> Result<()> {
 		match current {
 			c if c.chars().any(char::is_whitespace) => (),
 
@@ -315,7 +315,7 @@ impl<'src, 'r> Lexer<'src, 'r> {
 		Ok(())
 	}
 
-	fn lex_integer(&mut self, base: usize) -> Result<'src, ()> {
+	fn lex_integer(&mut self, base: usize) -> Result<()> {
 		while let Some(c) = self.peek() {
 			match c.chars().next().unwrap() {
 				c if match base {
