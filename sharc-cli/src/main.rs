@@ -56,7 +56,10 @@ fn main() {
 			let mut file = std::fs::File::open(f).unwrap();
 			
 			let mir = match sharc::bytecode::deserialize(Bump::new(), &mut file) {
-				Some(mir) => mir.unwrap(),
+				Some(mir) => {
+					std::mem::drop(file);
+					mir.unwrap()
+				},
 				None => {
 					let conf = sharc::CompilerOptions {
 						debug: args.debug,
@@ -65,6 +68,7 @@ fn main() {
 
 					let mut code = String::new();
 					std::io::Read::read_to_string(&mut file, &mut code).unwrap();
+					std::mem::drop(file);
 
 					match compile_mir(conf, &code, Some(f)) {
 						Ok(mir) => mir,
@@ -72,7 +76,6 @@ fn main() {
 					}
 				},
 			};
-
 
 			if args.debug {
 				eprintln!("{}", "MIRI".bold());

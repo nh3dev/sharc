@@ -130,6 +130,10 @@ impl<'src, 'r> Lexer<'src, 'r> {
 					"mut"    => TokenKind::KWMut,
 					"move"   => TokenKind::KWMove,
 					"as"     => TokenKind::KWAs,
+					"if"     => TokenKind::KWIf,
+					"fat"    => TokenKind::KWFat,
+					"raw"    => TokenKind::KWRaw,
+					"loop"	=> TokenKind::KWLoop,
 					_ => TokenKind::Identifier,
 				};
 

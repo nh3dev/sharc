@@ -92,7 +92,7 @@ impl crate::Bump {
 		let data = self.alloc_size::<T>(len * std::mem::size_of::<T>()) as *mut T;
 
 		unsafe {
-			iter.enumerate().try_for_each(|(i, val)| Ok(std::ptr::write(data.add(i), val?)))?;
+			iter.enumerate().try_for_each(|(i, val)| { std::ptr::write(data.add(i), val?); Ok(()) })?;
 			Ok(std::slice::from_raw_parts(data, len))
 		}
 	}
@@ -192,7 +192,7 @@ impl crate::Bump {
 		let data = self.alloc_size::<T>(len * std::mem::size_of::<T>()) as *mut T;
 
 		unsafe {
-			iter.enumerate().try_for_each(|(i, val)| Ok(std::ptr::write(data.add(i), val?)))?;
+			iter.enumerate().try_for_each(|(i, val)| { std::ptr::write(data.add(i), val?); Ok(()) })?;
 			Ok(std::slice::from_raw_parts_mut(data, len))
 		}
 	}

@@ -12,12 +12,16 @@ pub enum TokenKind {
 	KWExport,
 	KWExtern,
 	KWImpl,
-	KWStatic,
+	KWStatic, // TODO: idk
 	KWLet,
 	KWRet,
 	KWMut,
 	KWMove,
 	KWAs,
+	KWLoop,
+	KWFat,
+	KWRaw,
+	KWIf,
 
 	FloatLiteral,
 

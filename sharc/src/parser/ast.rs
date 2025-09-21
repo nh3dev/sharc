@@ -7,6 +7,8 @@ use colored::Colorize;
 
 #[derive(Debug)]
 pub enum Node<'src, 'b> {
+	None, // hack to allow non-returning last nodes
+
 	Let {
 		ident: Sp<&'src str>,
 		ty:    Option<Box<'b, Sp<Node<'src, 'b>>>>,
@@ -17,7 +19,7 @@ pub enum Node<'src, 'b> {
 
 	Loop {
 		initlet: Option<&'b Sp<Node<'src, 'b>>>,
-		block:   &'b [Sp<Node<'src, 'b>>],
+		expr:    &'b Sp<Node<'src, 'b>>,
 	},
 
 	Ident {
@@ -53,6 +55,8 @@ pub enum Node<'src, 'b> {
 	Ret(Option<&'b Sp<Node<'src, 'b>>>),
 	Move(&'b Sp<Node<'src, 'b>>),
 	Mut(&'b Sp<Node<'src, 'b>>),
+	Raw(&'b Sp<Node<'src, 'b>>), // raw &[T]
+	Fat(&'b Sp<Node<'src, 'b>>), // fat &T
 
 	// BINARY EXPR
 	Sub(&'b Sp<Node<'src, 'b>>,   &'b Sp<Node<'src, 'b>>),
@@ -89,28 +93,21 @@ impl Display for Node<'_, '_> {
 		}
 
 		match self {
+			Self::None => write!(f, "none"),
+
 			Self::Let { ident, ty, gener, expr, stat } =>
-				write!(f, "{} {ident}{}{} = {expr};",
+				write!(f, "{} {ident}{}{} = {expr}",
 					if *stat { "static" } else { "let" }.yellow().dimmed(),
 					if gener.is_empty() { String::new() } else { format!("<{}>", join_tostring(&**gener, ", ")) },
 					if let Some(ty) = ty { format!(": {ty}") } else { String::new() } ),
 
-			Self::Loop { initlet, block } => {
+			Self::Loop { initlet, expr } => {
 				write!(f, "{} ", "loop".yellow().dimmed())?;
 				if let Some(initlet) = initlet {
 					write!(f, "{initlet} ")?;
 				} 
 
-				match block {
-					[]  => write!(f, "{{}}"),
-					ref n => {
-						writeln!(f, "{{")?;
-						n.iter().enumerate().try_for_each(
-							|(i, stmt)| writeln!(f, "  {stmt}{}",
-								if i == n.len() - 1 { "" } else { ";" }))?;
-						write!(f, "}}")
-					},
-				}
+				write!(f, "{expr}")
 			},
 
 			Self::Ident { lit, gener } => 
@@ -163,7 +160,6 @@ impl Display for Node<'_, '_> {
 
 				if let Some(ret) = ret { write!(f, ": {ret}")?; }
 				if let Some(body) = body { write!(f, " {body}")?; }
-				write!(f, ";")?;
 
 				Ok(())
 			},
@@ -188,6 +184,8 @@ impl Display for Node<'_, '_> {
 			Self::Neg(expr)   => write!(f, "-{expr}"),
 			Self::Move(expr)  => write!(f, "{} {expr}", "move".yellow().dimmed()),
 			Self::Mut(expr)   => write!(f, "{} {expr}", "mut".yellow().dimmed()),
+			Self::Raw(expr)   => write!(f, "{} {expr}", "raw".yellow().dimmed()),
+			Self::Fat(expr)   => write!(f, "{} {expr}", "fat".yellow().dimmed()),
 
 			Self::Sub(a, b)   => write!(f, "({a} - {b})"),
 			Self::Add(a, b)   => write!(f, "({a} + {b})"),

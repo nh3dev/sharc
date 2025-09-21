@@ -5,7 +5,7 @@
 	clippy::needless_for_each,clippy::derive_partial_eq_without_eq,clippy::missing_const_for_fn,
 	clippy::cognitive_complexity,clippy::option_if_let_else,clippy::option_map_unit_fn,
 	clippy::similar_names,clippy::cast_possible_truncation,clippy::cargo_common_metadata,
-	clippy::must_use_candidate, clippy::return_self_not_must_use)]
+	clippy::must_use_candidate, clippy::return_self_not_must_use, clippy::missing_errors_doc)]
 
 
 #![feature(if_let_guard)]
@@ -71,7 +71,7 @@ impl Reporter {
 			(Some(code), Some(filename)) => r.file(code.clone(), filename.clone()),
 			(None,       Some(filename)) => r.filename(filename.clone()),
 			_ => r,
-		})
+		});
 	}
 }
 
@@ -115,7 +115,7 @@ impl Compiler {
 		self.reporter.source(code.clone(), filename.clone());
 
 		let code_ = code.as_ref().unwrap();
-		let tokens = lexer::Lexer::tokenize(&*code_, &mut self.reporter);
+		let tokens = lexer::Lexer::tokenize(&code_, &mut self.reporter);
 
 		if self.opts.debug { 
 			eprintln!("\n{}", "LEXER".bold());
@@ -152,7 +152,7 @@ impl Compiler {
 
 
 		let filename_ = filename.as_ref().unwrap();
-		let mir = mirgen::Analyzer::process(Some(&*filename_), hir, &mut self.reporter);
+		let mir = mirgen::Analyzer::process(Some(&filename_), hir, &mut self.reporter);
 		std::mem::drop(filename_);
 
 		if self.opts.debug { 

@@ -13,6 +13,12 @@ pub enum Node<'src, 'b> {
 		stat:  bool, // static // maybe 
 	},
 
+	Loop {
+		initlet: Option<&'b Ty<'src, 'b, Sp<Node<'src, 'b>>>>,
+		iterty:  &'b Type<'src, 'b>,
+		expr:    &'b Ty<'src, 'b, Sp<Node<'src, 'b>>>,
+	},
+
 	Ident {
 		lit:   Sp<&'src str>, 
 		gener: &'b [&'b Type<'src, 'b>], // TODO bounds, default vals
@@ -127,6 +133,16 @@ impl Display for Node<'_, '_> {
 					if *stat { "static" } else { "let" }.yellow().dimmed(),
 					if gener.is_empty() { String::new() } else { format!("<{}>", join_tostring(&**gener, ", ")) },
 					if let Some(ty) = ty { format!(": {ty}") } else { String::new() } ),
+
+			Self::Loop { initlet, expr, .. } => {
+				write!(f, "{} ", "loop".yellow().dimmed())?;
+
+				if let Some(initlet) = initlet {
+					write!(f, "{initlet} ")?;
+				} 
+
+				write!(f, "{expr}")
+			},
 
 			Self::Ident { lit, gener } => 
 				write!(f, "{}{}", lit.normal(), 

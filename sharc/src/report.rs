@@ -108,7 +108,7 @@ pub struct Report<R: Reportable + Sized> {
 
 impl<R: Reportable> Default for Report<R> {
 	fn default() -> Self {
-		Report {
+		Self {
 			filename:  None,
 			file:      None,
 			kind:      R::default(),
@@ -166,7 +166,7 @@ impl<R: Reportable> Report<R> {
 		self
 	}
 
-	pub fn as_err<T>(self) -> std::result::Result<T, Box<Report<R>>> {
+	pub fn as_err<T>(self) -> std::result::Result<T, Box<Self>> {
 		Err(Box::new(self))
 	}
 }
@@ -203,7 +203,6 @@ impl<R: Reportable + fmt::Debug> Display for Report<R> {
 		match (&self.span, &self.filename, &self.file) {
 			(Some(span), Some(filename), Some(file)) => {
 				let file = file.as_ref().ok_or(fmt::Error)?;
-				let filename = filename.as_ref().ok_or(fmt::Error)?;
 
 				let mut line = 1;
 				let mut line_start = 0;
@@ -216,7 +215,7 @@ impl<R: Reportable + fmt::Debug> Display for Report<R> {
 				let col = span.start - line_start + 1;
 
 				writeln!(f, " {} {}:{line}:{col}", 
-					"-->".cyan(), &*filename)?;
+					"-->".cyan(), &*filename.as_ref().ok_or(fmt::Error)?)?;
 
 				let line_str = line.to_string();
 

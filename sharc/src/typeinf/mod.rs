@@ -13,7 +13,35 @@ pub struct TypeInf<'src, 'bo, 'b, 'r> {
 	bump_lt:  std::marker::PhantomData<&'b Bump>,
 	bumpo_lt: std::marker::PhantomData<&'bo Bump>,
 
-	scope_stack: Vec<Vec<(&'src str, &'b Type<'src, 'b>)>>,
+	scope_stack: Vec<Scope<'src, 'b>>,
+}
+
+struct Scope<'src, 'b> {
+	kind: ScopeKind,
+	sym:  Vec<(&'src str, &'b Type<'src, 'b>)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ScopeKind {
+	Main, Func, Loop, Block
+}
+
+impl<'src, 'b> Scope<'src, 'b> {
+	fn new(kind: ScopeKind) -> Self {
+		Self { kind, sym: Vec::new() }
+	}
+
+	fn push_sym(&mut self, ident: &'src str, ty: &'b Type<'src, 'b>) {
+		self.sym.push((ident, ty));
+	}
+
+	fn iter(&self) -> impl DoubleEndedIterator<Item = (&'src str, &'b Type<'src, 'b>)> {
+		self.sym.iter().copied()
+	}
+
+	fn find_sym(&self, ident: &str) -> Option<&'b Type<'src, 'b>> {
+		self.sym.iter().rev().find_map(|(i, t)| (*i == ident).then_some(*t))
+	}
 }
 
 static TY_TYPE:  Type = Type::new(TypeKind::Type);
@@ -24,7 +52,7 @@ static TY_U8:    Type = Type::new(TypeKind::U(8));
 static CORE: &[Sp<&str>] = &[Sp { elem: "core", span: crate::span::Span::new(0) }];
 
 macro_rules! its_fine {
-	($bump:expr) => { unsafe { &*&raw const $bump } };
+	($bump:expr) => { #[allow(clippy::deref_addrof)] unsafe { &*&raw const $bump } };
 }
 
 impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
@@ -33,25 +61,21 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 		self.reporter.nom(report);
 	}
 
-	fn push_scope(&mut self) {
-		self.scope_stack.push(Vec::new());
+	fn push_scope(&mut self, kind: ScopeKind) {
+		self.scope_stack.push(Scope::new(kind));
 	}
 
-	fn pop_scope(&mut self) {
-		self.scope_stack.pop();
+	fn pop_scope(&mut self) -> Scope<'src, 'b> {
+		self.scope_stack.pop().expect("if this panicks you're in big trouble")
 	}
 	
-	fn push_scope_val(&mut self, ident: &'src str, ty: &'b Type<'src, 'b>) {
-		self.scope_stack.last_mut().unwrap().push((ident, ty));
+	fn scope(&mut self) -> &mut Scope<'src, 'b> {
+		self.scope_stack.last_mut().unwrap()
 	}
 
-	fn get_scope_val(&self, ident: &str) -> Option<(&'b Type<'src, 'b>, bool)> {
-		for (i, scope) in self.scope_stack.iter().rev().enumerate() {
-			if let Some((_, ty)) = scope.iter().rev().find(|(i, _)| *i == ident) {
-				return Some((ty, i == 0));
-			}
-		}
-		None
+	fn get_scope_val(&self, ident: &'src str) -> Option<(&'b Type<'src, 'b>, ScopeKind)> {
+		self.scope_stack.iter().rev().find_map(|scope|
+			scope.find_sym(ident).map(|ty| (ty, scope.kind)))
 	}
 
 	pub fn infer(
@@ -63,7 +87,7 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 			reporter, bump, 
 			bump_lt:  std::marker::PhantomData,
 			bumpo_lt: std::marker::PhantomData,
-			scope_stack: vec![Vec::new()] };
+			scope_stack: vec![Scope::new(ScopeKind::Main)] };
 
 		let hir = ast.into_iter().filter_map(
 			|node| inf.infer_node(&node).map_or_else(
@@ -99,7 +123,7 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 				self.bump.alloc(Type::new(TypeKind::Array(ty, *len)))
 			},
 			TyNode::ImplCall { path, ident, gener, vals } => {
-				if !path.get(0).is_some_and(|p| **p == "core") {
+				if path.get(0).is_none_or(|p| **p != "core") {
 					panic!(); // FIXME: idfk come up with an error
 				}
 
@@ -130,7 +154,6 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 	}
 
 	pub fn try_coerce_type(
-		&mut self, 
 		from: &'b Type<'src, 'b>,
 		to:   &'b Type<'src, 'b>,
 	) -> bool {
@@ -138,25 +161,22 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 
 		match (&from.kind, &to.kind) {
 			(TypeKind::Usize, TypeKind::U(_))
-				| (TypeKind::U(_), TypeKind::Usize)
 				| (TypeKind::Isize, TypeKind::I(_))
-				| (TypeKind::I(_), TypeKind::Isize)
-				| (TypeKind::U(_), TypeKind::U(_))
-				| (TypeKind::I(_), TypeKind::I(_))
+				| (TypeKind::U(_), TypeKind::U(_) | TypeKind::Usize)
+				| (TypeKind::I(_), TypeKind::I(_) | TypeKind::Isize)
 				| (TypeKind::B(_), TypeKind::B(_)) => true,
 
 			(TypeKind::Array(f, Some(fs)), TypeKind::Array(t, Some(ts))) => {
 				if fs != ts { return false; }
-				self.try_coerce_type(f, t)
+				Self::try_coerce_type(f, t)
 			},
-			(TypeKind::Array(f, Some(_)), TypeKind::Array(t, None)) =>
-				self.try_coerce_type(f, t),
+			(TypeKind::Array(f, Some(_)), TypeKind::Array(t, None))
+				| (TypeKind::Ref(f), TypeKind::Ref(t)) => Self::try_coerce_type(f, t),
 
 			(TypeKind::Array(f, Some(_)), TypeKind::Ref(t)) 
 				if let TypeKind::Array(t, None) = t.kind =>
-				self.try_coerce_type(f, t),
+				Self::try_coerce_type(f, t),
 
-			(TypeKind::Ref(f), TypeKind::Ref(t)) => self.try_coerce_type(f, t),
 			_ => false,
 		}
 	}
@@ -269,9 +289,9 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 					None     => expr.ty,
 				};
 
-				self.push_scope_val(ident, ty);
+				self.scope().push_sym(ident, ty);
 
-				if expr.ty.kind != ty.kind && !self.try_coerce_type(expr.ty, ty) {
+				if expr.ty.kind != ty.kind && !Self::try_coerce_type(expr.ty, ty) {
 					return ReportKind::TypeError
 						.title(format!("expected `{}`, found `{}`", ty.kind, expr.ty.kind))
 						.span(expr.elem.span)
@@ -290,7 +310,7 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 				let lhs = self.infer_node(lhs)?;
 				let rhs = self.infer_node(rhs)?;
 
-				if lhs.ty.kind != rhs.ty.kind && !self.try_coerce_type(rhs.ty, lhs.ty) {
+				if lhs.ty.kind != rhs.ty.kind && !Self::try_coerce_type(rhs.ty, lhs.ty) {
 					return ReportKind::TypeError
 						.title(format!("expected `{}`, found `{}`", lhs.ty.kind, rhs.ty.kind))
 						.span(rhs.elem.span)
@@ -356,7 +376,7 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 				let args = its_fine!(self.bump).try_alloc_from_iter(
 					args.iter().zip(ex_args.iter()).map(|(a, ety)| {
 						let expr = self.infer_node(a)?;
-						if expr.ty != *ety && !self.try_coerce_type(expr.ty, ety) {
+						if expr.ty != *ety && !Self::try_coerce_type(expr.ty, ety) {
 							return ReportKind::TypeError
 								.title(format!("expected `{}`, found `{}`", ety.kind, expr.ty.kind))
 								.span(expr.elem.span)
@@ -403,8 +423,9 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 						.as_err();
 				}
 
-				let ty = exprs.get(0).map(|e| e.ty).unwrap_or_else(
-					|| self.bump.alloc(Type::new(TypeKind::Generic(0))));
+				let ty = exprs.get(0).map_or_else(
+					|| self.bump.alloc(Type::new(TypeKind::Generic(0))), 
+					|e| e.ty);
 
 				let ty = match &ty.kind {
 					TypeKind::Type => &TY_TYPE,

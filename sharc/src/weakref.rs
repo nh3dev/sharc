@@ -14,7 +14,7 @@ impl<T: ?Sized> WeakRef<T> {
 	pub fn new(data: &T) -> Self {
 		Self { 
 			drop_flag: Arc::new(RwLock::new(false)),
-			data: data as *const T 
+			data:      std::ptr::from_ref(data),
 		}
 	}
 

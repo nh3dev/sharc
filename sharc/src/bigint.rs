@@ -18,7 +18,7 @@ impl IBig<'_> {
 	pub fn try_as_u32(&self) -> Option<u32> {
 		match self.0.len() {
 			0 => Some(0),
-			1 if self.0[0] <= u32::MAX as u64 => Some(self.0[0] as u32),
+			1 if let Ok(v) = u32::try_from(self.0[0]) => Some(v),
 			_ => None,
 		}
 	}
@@ -28,8 +28,11 @@ impl IBig<'_> {
 			0 => Some(0),
 			1 => Some(self.0[0]),
 			2 => {
-				if self.0[1] == 1 && self.0[0] <= 8446744073709551615 {
-					return Some(self.0[0] + 10000000000000000000);
+				const MAX_U64_19_DIGIT: u64 = 8_446_744_073_709_551_615;
+				const MAX_U64_MSD: u64 = 10_000_000_000_000_000_000;
+
+				if self.0[1] == 1 && self.0[0] <= MAX_U64_19_DIGIT {
+					return Some(self.0[0] + MAX_U64_MSD);
 				}
 				None
 			},
@@ -40,10 +43,13 @@ impl IBig<'_> {
 	pub fn try_as_u128(&self) -> Option<u128> {
 		match self.0.len() {
 			0 => Some(0),
-			1 => Some(self.0[0] as u128),
-			2 => Some((self.0[1] as u128) << 64 | (self.0[0] as u128)),
+			1 => Some(u128::from(self.0[0])),
+			2 => Some(u128::from(self.0[1]) << 64 | u128::from(self.0[0])),
 			3 => {
-				if self.0[3] == 3 && self.0[2] <= 4028236692093846346 && self.0[1] <= 3374607431768211455 {
+				const MAX_U128_19_DIGIT_HIGH: u64 = 4_028_236_692_093_846_346;
+				const MAX_U128_19_DIGIT_LOW: u64 = 3_374_607_431_768_211_455;
+
+				if self.0[3] == 3 && self.0[2] <= MAX_U128_19_DIGIT_HIGH && self.0[1] <= MAX_U128_19_DIGIT_LOW {
 					return format!("{}{:0>19}{:0>19}", self.0[2], self.0[1], self.0[0]).parse::<u128>().ok();
 				}
 				None

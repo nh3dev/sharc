@@ -50,8 +50,12 @@ impl<'src, 'b, 'r> Parser<'src, 'b, 'r> {
 		let mut exprs = Vec::new();
 		let until = if global { TokenKind::EOF } else { TokenKind::RBrace };
 
+		let mut ret = false;
+
 		while self.current().kind != until {
-			match self.parse_stmt() {
+			ret = false;
+
+			match self.parse_expr(0) {
 				Ok(expr) => exprs.push(expr),
 				// FIXME: this behaviour is causing headaches.. find someone who knows how to do this shit
 				Err(report) => {
@@ -65,23 +69,23 @@ impl<'src, 'b, 'r> Parser<'src, 'b, 'r> {
 					self.advance();
 				},
 			}
+
+			match self.advance_if(|t| matches!(t, TokenKind::Semicolon)) {
+				false if self.current().kind == until => ret = true,
+				false => self.log(ReportKind::UnexpectedToken
+					.title("Expected expression to end with ';'")
+					.span(self.current().span)),
+				_ => {},
+			}
+		}
+
+		if !ret {
+			let last_span = exprs.last().map_or(self.current().span, |n| n.span);
+			exprs.push(Node::None.span(last_span));
 		}
 
 		self.advance();
 		exprs
-	}
-
-	fn parse_stmt(&mut self) -> Result<Sp<Node<'src, 'b>>> {
-		let token = self.current();
-		let stmt = match token.kind {
-			TokenKind::KWLet    => self.parse_assign(false)?,
-			TokenKind::KWStatic => self.parse_assign(true)?,
-			_ => self.parse_expr(0)?,
-		};
-
-		self.advance_if(|t| matches!(t, TokenKind::Semicolon));
-
-		Ok(stmt)
 	}
 
 	fn parse_expr(&mut self, mbp: u8) -> Result<Sp<Node<'src, 'b>>> {
@@ -117,6 +121,26 @@ impl<'src, 'b, 'r> Parser<'src, 'b, 'r> {
 
 				lam
 			},
+			TokenKind::KWLoop => {
+				self.advance();
+
+				let let_expr = match self.current().kind {
+					TokenKind::KWLet => {
+						let expr = self.parse_assign(false)?;
+						Some(self.bump.alloc(expr))
+					},
+					_ => None,
+				};
+
+				let expr = self.parse_expr(0)?;
+
+				let end_span = expr.span;
+
+				Node::Loop { initlet: let_expr, expr: self.bump.alloc(expr) }
+					.span(token.span.extend(&end_span))
+			},
+			TokenKind::KWLet => self.parse_assign(false)?,
+			TokenKind::KWStatic => self.parse_assign(true)?,
 			t if let Some(pow) = t.pbind_power() => {
 				self.advance();
 

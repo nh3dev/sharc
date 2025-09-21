@@ -23,7 +23,7 @@ pub struct Analyzer<'r, 'src, 'bo, 'b> {
 }
 
 macro_rules! its_fine {
-	($bump:expr) => { unsafe { &*&raw const $bump } };
+	($bump:expr) => { unsafe { #[allow(clippy::deref_addrof)] &*&raw const $bump } };
 }
 
 static TY_NONE: Type = Type::None;
@@ -283,7 +283,7 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 			hir::TypeKind::Fn(a, r) => {
 				self.bump.alloc(Type::Fn(
 					self.bump.alloc_from_iter(a.into_iter().map(|a| self.process_type(a))),
-					r.map(|r| self.process_type(r)).unwrap_or(&TY_NONE)))
+					r.map_or(&TY_NONE, |r| self.process_type(r))))
 			},
 			hir::TypeKind::Ref(t) => self.bump.alloc(Type::Ptr(self.process_type(t))),
 			hir::TypeKind::Array(t, s) => self.bump.alloc(Type::Arr(self.process_type(t), s)),

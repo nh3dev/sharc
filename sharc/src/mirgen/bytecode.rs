@@ -161,7 +161,7 @@ mod ser {
 			Type::Arr(t, s) => {
 				buf.write_all(&[11])?;
 				serialize_type(t, buf)?;
-				buf.write_all(&[s.is_some() as u8])?;
+				buf.write_all(&[u8::from(s.is_some())])?;
 				if let Some(s) = s {
 					buf.write_all(&s.to_be_bytes())?;
 				}
