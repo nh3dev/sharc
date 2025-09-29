@@ -1,5 +1,5 @@
 use std::fmt::{self, Display};
-use std::sync::LazyLock;
+use std::sync::OnceLock;
 use colored::Colorize;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -68,8 +68,8 @@ impl<T> Spannable for T {}
 
 impl<T: Display> Display for Sp<T> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		static NO_SPAN: LazyLock<bool> = LazyLock::new(|| std::env::var("NO_SPAN").is_ok());
-		match *NO_SPAN {
+		static DBG_SPAN: OnceLock<bool> = OnceLock::new();
+		match DBG_SPAN.get_or_init(|| !std::env::var("SHARC_DBG_SPAN").is_ok()) {
 			true  => write!(f, "{}", self.elem),
 			false => write!(f, "{} {}", self.span, self.elem)
 		}
