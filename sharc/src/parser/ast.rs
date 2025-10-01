@@ -11,8 +11,8 @@ pub enum Node<'src, 'b> {
 
 	Let {
 		ident: Sp<&'src str>,
+		gener: &'b [Sp<&'src str>],
 		ty:    Option<Box<'b, Sp<Node<'src, 'b>>>>,
-		gener: &'b [Sp<Node<'src, 'b>>],
 		expr:  &'b Sp<Node<'src, 'b>>,
 		stat:  bool, // static
 	},
@@ -22,10 +22,7 @@ pub enum Node<'src, 'b> {
 		expr:    &'b Sp<Node<'src, 'b>>,
 	},
 
-	Ident {
-		lit:   Sp<&'src str>, 
-		gener: &'b [Sp<Node<'src, 'b>>],
-	},
+	Ident(&'src str),
 	StrLit(&'b str),
 	IntLit(IBig<'b>),
 	ArrayLit(&'b [Sp<Node<'src, 'b>>], Option<u64>), // [u8], [20, 3, 8], [u16; 10]
@@ -96,7 +93,7 @@ impl Display for Node<'_, '_> {
 			Self::None => write!(f, "none"),
 
 			Self::Let { ident, ty, gener, expr, stat } =>
-				write!(f, "{} {ident}{}{} = {expr}",
+				write!(f, "{}{} {ident}{} = {expr}",
 					if *stat { "static" } else { "let" }.yellow().dimmed(),
 					if gener.is_empty() { String::new() } else { format!("<{}>", join_tostring(&**gener, ", ")) },
 					if let Some(ty) = ty { format!(": {ty}") } else { String::new() } ),
@@ -110,9 +107,7 @@ impl Display for Node<'_, '_> {
 				write!(f, "{expr}")
 			},
 
-			Self::Ident { lit, gener } => 
-				write!(f, "{}{}", lit.normal(), 
-					if gener.is_empty() { String::new() } else { format!("<{}>", join_tostring(&**gener, ", ")) }),
+			Self::Ident(lit) => write!(f, "{}", lit.normal()),
 			Self::StrLit(s) => write!(f, "{}", format!("{s:?}").green()),
 			Self::IntLit(i) => write!(f, "{}", i.to_string().cyan()),
 			Self::ArrayLit(arr, size) => {

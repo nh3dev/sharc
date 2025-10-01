@@ -36,14 +36,16 @@ impl<'src, 'b, 'r> Parser<'src, 'b, 'r> {
 		self.reporter.nom(report);
 	}
 
-	pub fn parse(tokens: Vec<Token<'src>>, reporter: &'r mut crate::Reporter) -> (Vec<Sp<Node<'src, 'b>>>, Bump) {
+	pub fn parse(tokens: Vec<Token<'src>>, reporter: &'r mut crate::Reporter) -> (Node<'src, 'b>, Bump) {
 		if tokens.is_empty() { 
-			return (Vec::new(), Bump::new());
+			return (Node::Block(&[]), Bump::new());
 		}
 
 		let mut parser = Self { reporter, bump: Bump::new(), tokens, index: 0, bump_lt: std::marker::PhantomData };
 
-		(parser.parse_block(true), parser.bump)
+		let block = parser.parse_block(true);
+
+		(Node::Block(parser.bump.alloc_from_vec(block)), parser.bump)
 	}
 
 	fn parse_block(&mut self, global: bool) -> Vec<Sp<Node<'src, 'b>>> {
@@ -67,6 +69,7 @@ impl<'src, 'b, 'r> Parser<'src, 'b, 'r> {
 						TokenKind::Semicolon | TokenKind::RBrace) 
 					{ self.advance(); }
 					self.advance();
+					continue;
 				},
 			}
 
@@ -384,7 +387,31 @@ impl<'src, 'b, 'r> Parser<'src, 'b, 'r> {
 		let start = self.current().span;
 		self.advance();
 
-		let Node::Ident { lit, gener } = self.parse_ident()?.elem
+		let gener = match self.current().kind {
+			TokenKind::LessThan => {
+				self.advance();
+
+				let mut out = Vec::with_capacity(4);
+
+				loop {
+					let c = self.current();
+					match c.kind {
+						TokenKind::GreaterThan => break,
+						TokenKind::Comma => self.advance(),
+						TokenKind::Identifier => out.push(c.text.span(c.span)),
+						_ => return ReportKind::UnexpectedToken
+							.title("Expected identifier, ',', or '>'")
+							.span(c.span).as_err(),
+					}
+				}
+				self.advance();
+
+				self.bump.alloc_from_vec(out)
+			},
+			_ => &[],
+		};
+
+		let Sp { elem: Node::Ident(lit), span } = self.parse_ident()? 
 			else { unreachable!() };
 
 		let (ty, expr) = match self.current().kind {
@@ -408,7 +435,7 @@ impl<'src, 'b, 'r> Parser<'src, 'b, 'r> {
 		Ok(Node::Let {
 			ty, stat, gener,
 			expr:  self.bump.alloc(expr), 
-			ident: lit,
+			ident: lit.span(span),
 		}.span(start.extend(&self.current().span)))
 	}
 
@@ -503,36 +530,7 @@ impl<'src, 'b, 'r> Parser<'src, 'b, 'r> {
 				.title(format!("Expected identifier, got '{:?}'", self.current().kind))
 				.span(self.current().span))?;
 
-		// FIXME: do something about the whole ident<20 vs ident<20>
-		let gener = match self.current().kind {
-			TokenKind::LessThan => self.parse_generics()?,
-			_ => &[][..],
-		};
-
-		let span = gener.last().map_or(token.span, |g| g.span.extend(&token.span));
-
-		Ok(Node::Ident { lit: token.text.span(token.span), gener }.span(span))
-	}
-
-	fn parse_generics(&mut self) -> Result<&'b [Sp<Node<'src, 'b>>]> {
-		let token = self.current();
-		self.advance_if(|t| matches!(t, TokenKind::LessThan)).then_some(())
-			.ok_or_else(|| ReportKind::UnexpectedToken
-				.title("Expected '<' for generics")
-				.span(token.span))?;
-
-		let mut out = Vec::new();
-
-		loop {
-			match self.current().kind {
-				TokenKind::GreaterThan => break,
-				TokenKind::Comma => self.advance(),
-				_ => out.push(self.parse_expr(0)?),
-			}
-		}
-		self.advance();
-
-		Ok(self.bump.alloc_from_vec(out))
+		Ok(Node::Ident(token.text).span(token.span))
 	}
 }
 

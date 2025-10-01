@@ -21,6 +21,10 @@ name = "colored"
 version = "3.0.0"
 
 [[package]]
+name = "compile-warn"
+version = "0.1.0"
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -56,6 +60,7 @@ name = "miri"
 version = "0.1.0"
 dependencies = [
  "colored",
+ "compile-warn",
  "libffi",
  "sharc",
 ]

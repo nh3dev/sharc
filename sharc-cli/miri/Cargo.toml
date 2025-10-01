@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-sharc.workspace   = true
-colored.workspace = true
+sharc.workspace        = true
+colored.workspace      = true
+compile-warn.workspace = true
 libffi = "4.1"

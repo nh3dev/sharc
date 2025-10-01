@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::cell::RefCell;
 
 use crate::report::{Result, ReportKind, Reportable};
 use crate::span::Sp;
@@ -58,7 +59,7 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 
 	pub fn process(
 		origin: Option<&str>,
-		(hir, hir_bump): (Vec<hir::Ty<'src, 'bo, Sp<hir::Node<'src, 'bo>>>>, Bump),
+		(hir, hir_bump): (hir::Ty<'src, 'bo, hir::Node<'src, 'bo>>, Bump),
 		reporter: &'r mut crate::Reporter
 	) -> mir::Mir<'b> {
 		let mut analyzer = Self { 
@@ -68,6 +69,10 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 			bumpo_lt: std::marker::PhantomData,
 			scope: vec![Scope::default()], 
 			// symbols: HashMap::new(),
+		};
+
+		let hir::Node::Block(hir) = hir.elem else {
+			unreachable!("top level must be a block");
 		};
 
 		let hir_len = hir.len();
@@ -81,7 +86,7 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 		mir::Mir {
 			nodes:   mir,
 			origin:  origin.map(|s| its_fine!(analyzer.bump).alloc_str(s)),
-			version: (crate::VERSION, env!("GIT_REV")),
+			version: (crate::VERSION, crate::GITREV),
 			bump:    analyzer.bump,
 		}
 	}
@@ -267,11 +272,13 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 		Ok((var, ty, nodes))
 	}
 
-	pub fn process_type(&self, ty: &'bo hir::Type<'src, 'bo>) -> &'b Type<'b> {
+	pub fn process_type(&self, ty: &'bo RefCell<hir::Type<'src, 'bo>>) -> &'b Type<'b> {
 		static NONE : Type = Type::None;
 		static NEVER: Type = Type::Never;
 		static USIZE: Type = Type::Usize;
 		static ISIZE: Type = Type::Isize;
+
+		let ty = ty.borrow();
 
 		match ty.kind {
 			hir::TypeKind::U(n)  => self.bump.alloc(Type::U(n)),

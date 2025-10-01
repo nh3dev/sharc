@@ -5,18 +5,14 @@
 use std::cell::Cell;
 use std::ptr::NonNull;
 
+mod sys;
+
 mod boxed;
 mod rc;
 mod r#ref;
 
 pub use boxed::{Box, BoxIter};
 pub use rc::Rc;
-
-unsafe extern "C-unwind" {
-	fn mmap(addr: *mut u8, length: usize, prot: i32, flags: i32, fd: i32, offset: usize) -> *mut u8;
-	fn munmap(addr: *mut u8, length: usize) -> i32;
-	fn mremap(addr: *mut u8, old_size: usize, new_size: usize, flags: i32) -> *mut u8;
-}
 
 pub struct Bump {
 	chunk:     Cell<Option<NonNull<Chunk>>>,
@@ -37,7 +33,7 @@ impl Chunk {
 	fn new(page_size: usize, alloc_pages: usize) -> NonNull<Chunk> {
 		let size = page_size * alloc_pages;
 
-		let ptr = unsafe { mmap(std::ptr::null_mut(), size, 0b11, 0x22, -1, 0) };
+		let ptr = unsafe { sys::map(size) };
 
 		if ptr.is_null() {
 			panic!("Failed to allocate chunk of size {size}");
@@ -66,7 +62,7 @@ impl Chunk {
 impl Drop for Chunk {
 	fn drop(&mut self) {
 		unsafe {
-			munmap(self as *mut Self as *mut u8, self.size());
+			sys::unmap(self as *mut Self as *mut u8, self.size());
 		}
 	}
 }
@@ -104,7 +100,7 @@ impl Bump {
 	fn try_extend_chunk(&self, new_size: usize) -> Option<()> {
 		let chunk = self.chunk.get()?;
 
-		let new_ptr = unsafe { mremap(chunk.as_ptr() as *mut u8, chunk.as_ref().size(), new_size, 0) };
+		let new_ptr = unsafe { sys::remap(chunk.as_ptr() as *mut u8, chunk.as_ref().size(), new_size) };
 		if new_ptr.is_null() { return None; }
 
 		let new_ptr = unsafe {

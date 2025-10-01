@@ -67,6 +67,19 @@ impl Args {
 		let arg = args.next()?;
 
 		match arg.strip_prefix('-') {
+			Some("h" | "-help") => {
+				println!("{HELP_MESSAGE}");
+				exit(0);
+			},
+			Some("v" | "-version") => {
+				println!("sharc {}.{}{}", 
+					sharc::VERSION.0, sharc::VERSION.1,
+					sharc::GITREV.map_or(String::new(), |r| format!(" rev:{r}")));
+				println!("miri {}.{}{}", 
+					miri::VERSION.0, miri::VERSION.1,
+					miri::GITREV.map_or(String::new(), |r| format!(" rev:{r}")));
+				exit(0);
+			},
 			Some(a) => {
 				let flags = match a.strip_prefix('-') {
 					Some(a) => vec![a],
@@ -94,14 +107,6 @@ impl Args {
 					eprintln!("\x1b[34m{SHARK_ASCII}\x1b[0m");
 					exit(1);
 				},
-				"help" => {
-					println!("{HELP_MESSAGE}");
-					exit(0);
-				},
-				"version" => {
-					println!("sharc {}", env!("CARGO_PKG_VERSION"));
-					exit(0);
-				},
 				"miri" => self.action = Action::Miri {
 					file: self.parse_arg(args).map(|s| -> &'static str { Box::leak(s.into_boxed_str()) }),
 				},
@@ -119,12 +124,12 @@ impl Args {
 	}
 }
 
-const HELP_MESSAGE: &str = "><_>
-    The compiler and interpreter for the Shard Programming Language.
-    Documentation can be found at https://nh3.dev/shard/
+const HELP_MESSAGE: &str = 
+"  The compiler and interpreter for the Shard Programming Language. \x1b[34m><_>\x1b[0m
+  Documentation can be found at https://nh3.dev/shard/ 
 
-\x1b[1mOPTIONS\x1b[0m
-  -h, --help           `-h` only shows the usage 
+\x1b[1mOPTIONS\x1b[0m 
+  -h, --help           Show this message
   -v, --version        Show version
   -d, --debug          Print information not intended for mere mortals.
 

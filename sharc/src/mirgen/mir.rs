@@ -14,7 +14,7 @@ impl std::ops::Deref for ValId { // FIXME: prob not needed
 
 pub struct Mir<'b> {
 	pub origin:  Option<&'b str>, // filename
-	pub version: ((u32, u8), &'static str), // ((version, patch), git rev)
+	pub version: ((u16, u16), Option<&'static str>), // ((version, patch), git rev)
 	pub nodes:   Vec<Node<'b>>,
 	pub bump:    bump::Bump,
 }

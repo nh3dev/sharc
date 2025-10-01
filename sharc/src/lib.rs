@@ -31,7 +31,8 @@ pub use bigint::IBig;
 use report::{Level, Report, ReportKind, Reportable};
 use weakref::WeakRef;
 
-const VERSION: (u32, u8) = (1, 0);
+pub const VERSION: (u16, u16) = (1, 0);
+pub const GITREV: Option<&'static str> = option_env!("GITREV");
 
 
 pub struct Reporter {
@@ -129,7 +130,7 @@ impl Compiler {
 
 		if self.opts.debug { 
 			eprintln!("\n{}", "PARSER".bold());
-			ast.0.iter().for_each(|n| eprintln!("{n:#}")); 
+			eprintln!("{}", ast.0); 
 		}
 		
 		if self.reporter.count > 0 { 
@@ -143,7 +144,7 @@ impl Compiler {
 
 		if self.opts.debug { 
 			eprintln!("\n{}", "TYPEINF".bold());
-			hir.0.iter().for_each(|n| eprintln!("{n:#}"));
+			eprintln!("{}", hir.0);
 		}
 
 		if self.reporter.count > 0 { 

@@ -66,7 +66,6 @@ impl Type {
 			),
 			MirType::Ptr(t)    => Type::Ptr(Box::new(Self::from_mir(t))),
 			MirType::Arr(t, s) => Type::Array(Box::new(Self::from_mir(t)), *s),
-			MirType::Ptr(t)    => Type::Ptr(Box::new(Self::from_mir(t))),
 			_ => todo!("{:?}", ty),
 		}
 	}

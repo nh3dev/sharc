@@ -1,9 +1,8 @@
 [workspace]
 resolver = "3"
 members = [
-	"sharc",
-	"sharc-cli",
-	"colored",
+	"sharc", "sharc-cli",
+	"colored", "compile-warn",
 ]
 
 [workspace.package]
@@ -18,8 +17,9 @@ description = "Compiler for the Shard Programming Language."
 license     = "0BSD"
 
 [workspace.dependencies]
-colored = { path = "colored" }
-sharc   = { path = "sharc" }
+colored.path      = "colored"
+sharc.path        = "sharc"
+compile-warn.path = "compile-warn"
 
 [profile.release]
 lto = "thin"

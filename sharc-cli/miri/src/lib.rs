@@ -8,26 +8,14 @@ use sharc::report::Reportable;
 mod val;
 mod sheep;
 mod error;
+mod sys;
 
 use val::{RawVal, Type, Val, Value};
 use sheep::Sheep;
 use error::{MiriError, Result};
 
-
-#[repr(transparent)]
-#[derive(Clone, Copy)]
-struct DlHandle(*mut u8);
-
-unsafe impl Send for DlHandle {}
-unsafe impl Sync for DlHandle {}
-
-unsafe extern "C-unwind" {
-	fn dlopen(path: *const u8, flags: i32) -> DlHandle;
-	fn dlsym(handle: DlHandle, symbol: *const u8) -> *const c_void;
-}
-
-static CURRENT_PROCESS: LazyLock<DlHandle> = LazyLock::new(|| 
-	unsafe { dlopen(std::ptr::null(), 0x0) });
+pub const VERSION: (u16, u16) = (1, 0);
+pub const GITREV: Option<&'static str> = option_env!("GITREV");
 
 pub struct Runtime {
 	stack:  Vec<Value>,
@@ -155,8 +143,8 @@ impl<'b> Runtime {
 				let ret = Type::from_mir(ret);
 				let cif_ret = ret.to_libffi();
 
-				let sym = format!("{sym}\0").into_bytes();
-				let ptr = unsafe { dlsym(*CURRENT_PROCESS, sym.as_ptr()) };
+				let sym = format!("{sym}\0");
+				let ptr = unsafe { sys::ldsym(&sym) };
 
 				Sheep::Owned(Value::new(
 					Val::CFn(Cif::new(cif_args, cif_ret), CodePtr::from_ptr(ptr)), 

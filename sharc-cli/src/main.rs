@@ -55,7 +55,7 @@ fn main() {
 		args::Action::Miri { file: Some(f) } => {
 			let mut file = std::fs::File::open(f).unwrap();
 			
-			let mir = match sharc::bytecode::deserialize(Bump::new(), &mut file) {
+			let mir = match sharc::mir::Mir::deserialize(Bump::new(), &mut file) {
 				Some(mir) => {
 					std::mem::drop(file);
 					mir.unwrap()
@@ -102,7 +102,7 @@ fn main() {
 
 			let mut writer = std::io::BufWriter::new(file);
 
-			sharc::bytecode::serialize(&mir, &mut writer).unwrap();
+			sharc::bytecode::Serialize::serialize(&mir, &mut writer).unwrap();
 		},
 		args::Action::Unset => unreachable!(),
 	}

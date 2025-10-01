@@ -1,423 +1,458 @@
-use super::mir::*;
+use std::ops::Not;
+use bump::Bump;
 
-pub use self::{ser::serialize, de::deserialize};
+use super::mir::*;
+use crate::IBig;
 
 const MAGIC: &[u8] = b"SHARDBC";
 
-mod ser {
-	use std::io::{self, Write};
-	use super::*;
+use std::io::{self, Write, Read, Seek};
 
-	pub fn serialize(mir: &Mir, buf: &mut impl Write) -> io::Result<()> {
-		buf.write_all(MAGIC)?;
-		buf.write_all(&mir.version.0.0.to_be_bytes())?;
-		buf.write_all(&[mir.version.0.1])?;
-		serialize_str(mir.version.1, buf)?;
-		serialize_str(mir.origin.unwrap_or(""), buf)?;
-		serialize_block(&mir.nodes, buf)
+pub trait Serialize {
+	fn serialize(&self, b: &mut impl Write) -> io::Result<()>;
+}
+
+impl Serialize for Mir<'_> {
+	fn serialize(&self, b: &mut impl Write) -> io::Result<()> {
+		MAGIC.serialize(b)?;
+		self.version.0.serialize(b)?;
+		self.version.1.unwrap_or("").serialize(b)?;
+		self.origin.unwrap_or("").serialize(b)?;
+		self.nodes.serialize(b)?;
+		b.flush()
 	}
+}
 
-	fn serialize_block(mir: &[Node], buf: &mut impl Write) -> io::Result<()> {
-		mir.into_iter().try_for_each(|node| match node {
-			Node::Ret(v, t) => {
-				buf.write_all(&[0])?;
-				serialize_var(v, buf)?;
-				serialize_type(t, buf)
-			},
-			Node::Assign { id, ty, expr } => {
-				buf.write_all(&[1])?;
-				serialize_valid(*id, buf)?;
-				serialize_type(ty, buf)?;
-				serialize_expr(expr, buf)
-			},
-			Node::Store { to, ty, from } => {
-				buf.write_all(&[2])?;
-				serialize_valid(*to, buf)?;
-				serialize_type(ty, buf)?;
-				serialize_var(from, buf)
-			},
-			Node::Dbg { id, ident } => {
-				buf.write_all(&[3])?;
-				serialize_valid(*id, buf)?;
-				serialize_str(ident, buf)
-			},
-			Node::DefFn { id, args, ret, def_proc, body } => {
-				buf.write_all(&[4])?;
-				serialize_valid(*id, buf)?;
-
-				buf.write_all(&(args.len() as u32).to_be_bytes())?;
-				args.iter().try_for_each(|(arg_id, arg_ty)| {
-					serialize_valid(*arg_id, buf)?;
-					serialize_type(arg_ty, buf)
-				})?;
-
-				serialize_type(ret, buf)?;
-
-				buf.write_all(&(def_proc.len() as u32).to_be_bytes())?;
-				def_proc.iter().try_for_each(|(proc_id, proc_body)| {
-					serialize_valid(*proc_id, buf)?;
-					buf.write_all(&(proc_body.len() as u32).to_be_bytes())?;
-					serialize_block(proc_body, buf)
-				})?;
-
-				buf.write_all(&(body.len() as u32).to_be_bytes())?;
-				serialize_block(body, buf)
-			},
-		})?;
-
-		buf.flush()
-	}
-
-	fn serialize_expr(expr: &Expr, buf: &mut impl Write) -> io::Result<()> {
-		match expr {
-			Expr::Call { id, ty, args } => {
-				buf.write_all(&[0])?;
-				serialize_valid(*id, buf)?;
-				serialize_type(ty, buf)?;
-				buf.write_all(&(args.len() as u32).to_be_bytes())?;
-				args.iter().try_for_each(|(arg, ty)| {
-					serialize_var(arg, buf)?;
-					serialize_type(ty, buf)
-				})
-			},
-			Expr::FuncCapture { fid, args } => {
-				buf.write_all(&[1])?;
-				serialize_valid(*fid, buf)?;
-				buf.write_all(&(args.len() as u32).to_be_bytes())?;
-				args.iter().try_for_each(|v| serialize_valid(*v, buf))
-			},
-			Expr::StrLit(s) => {
-				buf.write_all(&[2])?;
-				serialize_str(s, buf)
-			},
-			Expr::ImplCall { path, ident, gener, args } => {
-				buf.write_all(&[3])?;
-				buf.write_all(&(path.len() as u32).to_be_bytes())?;
-				path.iter().try_for_each(|p| serialize_str(p, buf))?;
-
-				serialize_str(ident, buf)?;
-
-				buf.write_all(&(gener.len() as u32).to_be_bytes())?;
-				gener.iter().try_for_each(|g| serialize_type(g, buf))?;
-
-				buf.write_all(&(args.len() as u32).to_be_bytes())?;
-				args.iter().try_for_each(|(arg, ty)| {
-					serialize_var(arg, buf)?;
-					serialize_type(ty, buf)
-				})
-			},
-			Expr::Imm(i, ty) => {
-				buf.write_all(&[4])?;
-				buf.write_all(&(i.0.len() as u32).to_be_bytes())?;
-				i.0.iter().try_for_each(|b| buf.write_all(&b.to_be_bytes()))?;
-				serialize_type(ty, buf)
-			},
-			Expr::DefCFn { sym, args, ret } => {
-				buf.write_all(&[5])?;
-				serialize_str(sym, buf)?;
-				buf.write_all(&(args.len() as u32).to_be_bytes())?;
-				args.iter().try_for_each(|t| serialize_type(t, buf))?;
-				serialize_type(ret, buf)
-			},
-		}
-	}
-
-	fn serialize_type(ty: &Type, buf: &mut impl Write) -> io::Result<()> {
-		match ty {
-			Type::U(i)   => {
-				buf.write_all(&[0])?;
-				buf.write_all(&i.to_be_bytes())
-			},
-			Type::I(i)   => {
-				buf.write_all(&[1])?;
-				buf.write_all(&i.to_be_bytes())
-			},
-			Type::B(i) => {
-				buf.write_all(&[2])?;
-				buf.write_all(&i.to_be_bytes())
-			},
-			Type::F(i) => {
-				buf.write_all(&[3])?;
-				buf.write_all(&i.to_be_bytes())
-			},
-			Type::Usize  => buf.write_all(&[4]),
-			Type::Isize  => buf.write_all(&[5]),
-			Type::None   => buf.write_all(&[6]),
-			Type::Never  => buf.write_all(&[7]),
-			Type::Ptr(t) => {
-				buf.write_all(&[8])?;
-				serialize_type(t, buf)
-			},
-			Type::Mut(t) => {
-				buf.write_all(&[9])?;
-				serialize_type(t, buf)
-			},
-			Type::Fn(a, r) => {
-				buf.write_all(&[10])?;
-				buf.write_all(&(a.len() as u32).to_be_bytes())?;
-				a.iter().try_for_each(|t| serialize_type(t, buf))?;
-				serialize_type(r, buf)
-			},
-			Type::Arr(t, s) => {
-				buf.write_all(&[11])?;
-				serialize_type(t, buf)?;
-				buf.write_all(&[u8::from(s.is_some())])?;
-				if let Some(s) = s {
-					buf.write_all(&s.to_be_bytes())?;
-				}
-				Ok(())
-			},
-		}
-	}
-
-	fn serialize_var(var: &Var, buf: &mut impl Write) -> io::Result<()> {
-		match var {
-			Var::None => buf.write_all(&[0]),
+impl Serialize for Var<'_> {
+	fn serialize(&self, b: &mut impl Write) -> io::Result<()> {
+		match self {
+			Var::None => 0_u8.serialize(b),
 			Var::Imm(i) => { 
-				buf.write_all(&[1])?;
-				buf.write_all(&(i.0.len() as u32).to_be_bytes())?;
-				i.0.iter().try_for_each(|b| buf.write_all(&b.to_be_bytes()))
+				1_u8.serialize(b)?;
+				i.0.serialize(b)
 			},
 			Var::Local(i) => {
-				buf.write_all(&[2])?;
-				serialize_valid(*i, buf)
+				2_u8.serialize(b)?;
+				i.serialize(b)
 			},
 		}
 	}
+}
 
-	fn serialize_valid(id: ValId, buf: &mut impl Write) -> io::Result<()> {
-		buf.write_all(&id.0.to_be_bytes())
+impl Serialize for Type<'_> {
+	fn serialize(&self, b: &mut impl Write) -> io::Result<()> {
+		match self {
+			Type::U(i)   => {
+				0_u8.serialize(b)?;
+				i.serialize(b)
+			},
+			Type::I(i)   => {
+				1_u8.serialize(b)?;
+				i.serialize(b)
+			},
+			Type::B(i) => {
+				2_u8.serialize(b)?;
+				i.serialize(b)
+			},
+			Type::F(i) => {
+				3_u8.serialize(b)?;
+				i.serialize(b)
+			},
+			Type::Usize  => 4_u8.serialize(b),
+			Type::Isize  => 5_u8.serialize(b),
+			Type::None   => 6_u8.serialize(b),
+			Type::Never  => 7_u8.serialize(b),
+			Type::Ptr(t) => {
+				8_u8.serialize(b)?;
+				t.serialize(b)
+			},
+			Type::Mut(t) => {
+				9_u8.serialize(b)?;
+				t.serialize(b)
+			},
+			Type::Fn(a, r) => {
+				10_u8.serialize(b)?;
+				a.serialize(b)?;
+				r.serialize(b)
+			},
+			Type::Arr(t, s) => {
+				11_u8.serialize(b)?;
+				t.serialize(b)?;
+				s.serialize(b)
+			},
+		}
 	}
+}
 
-	fn serialize_str(s: &str, buf: &mut impl Write) -> io::Result<()> {
-		buf.write_all(&(s.len() as u32).to_be_bytes())?;
-		buf.write_all(s.as_bytes())
+impl Serialize for Expr<'_> {
+	fn serialize(&self, b: &mut impl Write) -> io::Result<()> {
+		match self {
+			Expr::Call { id, ty, args } => {
+				0_u8.serialize(b)?;
+				id.serialize(b)?;
+				ty.serialize(b)?;
+				args.serialize(b)
+			},
+			Expr::FuncCapture { fid, args } => {
+				1_u8.serialize(b)?;
+				fid.serialize(b)?;
+				args.serialize(b)
+			},
+			Expr::StrLit(s) => {
+				2_u8.serialize(b)?;
+				s.serialize(b)
+			},
+			Expr::ImplCall { path, ident, gener, args } => {
+				3_u8.serialize(b)?;
+				path.serialize(b)?;
+				ident.serialize(b)?;
+				gener.serialize(b)?;
+				args.serialize(b)
+			},
+			Expr::Imm(i, ty) => {
+				4_u8.serialize(b)?;
+				i.0.serialize(b)?;
+				ty.serialize(b)
+			},
+			Expr::DefCFn { sym, args, ret } => {
+				5_u8.serialize(b)?;
+				sym.serialize(b)?;
+				args.serialize(b)?;
+				ret.serialize(b)
+			},
+		}
+	}
+}
+
+impl Serialize for Node<'_> {
+	fn serialize(&self, b: &mut impl Write) -> io::Result<()> {
+		match self {
+			Node::Ret(v, t) => {
+				0_u8.serialize(b)?;
+				v.serialize(b)?;
+				t.serialize(b)
+			},
+			Node::Assign { id, ty, expr } => {
+				1_u8.serialize(b)?;
+				id.serialize(b)?;
+				ty.serialize(b)?;
+				expr.serialize(b)
+			},
+			Node::Store { to, ty, from } => {
+				2_u8.serialize(b)?;
+				to.serialize(b)?;
+				ty.serialize(b)?;
+				from.serialize(b)
+			},
+			Node::Dbg { id, ident } => {
+				3_u8.serialize(b)?;
+				id.serialize(b)?;
+				ident.serialize(b)
+			},
+			Node::DefFn { id, args, ret, def_proc, body } => {
+				4_u8.serialize(b)?;
+				id.serialize(b)?;
+				args.serialize(b)?;
+				ret.serialize(b)?;
+				def_proc.serialize(b)?;
+				body.serialize(b)
+			},
+		}
+	}
+}
+
+macro_rules! serialize_int {
+	($($ty:ty),*) => {
+		$(impl Serialize for $ty {
+			fn serialize(&self, b: &mut impl Write) -> io::Result<()> {
+				b.write_all(&self.to_be_bytes())
+			}
+		})*
+	}
+}
+
+serialize_int!(u8, u16, u32, u64, i8, i16, i32, i64);
+
+macro_rules! serialize_tuple_inner {
+	($($ident:ident),*) => {
+		impl<$($ident: Serialize),*> Serialize for ($($ident),*) {
+			fn serialize(&self, b: &mut impl Write) -> io::Result<()> {
+				let ($($ident),*) = self;
+				$($ident.serialize(b)?;)*
+				Ok(())
+			}
+		}
+	}
+}
+
+macro_rules! serialize_tuple {
+	($a:ident) => {};
+	($a:ident $(,$b:ident)*) => {
+		serialize_tuple_inner!($a $(,$b)*);
+		serialize_tuple!($($b),*);
+	};
+}
+
+serialize_tuple!(A, B, C, D, E, F, G);
+
+impl Serialize for ValId {
+	fn serialize(&self, b: &mut impl Write) -> io::Result<()> {
+		self.0.serialize(b)
+	}
+}
+
+impl Serialize for bool {
+	fn serialize(&self, b: &mut impl Write) -> io::Result<()> {
+		b.write_all(&[*self as u8])
+	}
+}
+
+impl Serialize for str {
+	fn serialize(&self, b: &mut impl Write) -> io::Result<()> {
+		self.as_bytes().serialize(b)
+	}
+}
+
+impl<T: Serialize> Serialize for Option<T> {
+	fn serialize(&self, b: &mut impl Write) -> io::Result<()> {
+		self.is_some().serialize(b)?;
+		if let Some(v) = self { return v.serialize(b); }
+		Ok(())
+	}
+}
+
+impl<T: Serialize> Serialize for [T] {
+	fn serialize(&self, b: &mut impl Write) -> io::Result<()> {
+		(self.len() as u32).serialize(b)?;
+		self.iter().try_for_each(|v| v.serialize(b))
+	}
+}
+
+impl<T: ?Sized + Serialize> Serialize for &T {
+	fn serialize(&self, b: &mut impl Write) -> io::Result<()> {
+		(*self).serialize(b)
 	}
 }
 
 
-mod de {
-	use std::io::{self, Read, Seek};
-	use std::ops::Not;
-
-	use super::*;
-	use crate::IBig;
-	use bump::Bump;
 
 
-	pub fn deserialize<'b>(bump: Bump, buf: &mut (impl Read + Seek)) -> Option<io::Result<Mir<'b>>> {
-		let pos = match buf.stream_position() {
+trait Deserialize: Sized {
+	fn deserialize(bump: &Bump, b: &mut impl Read) -> io::Result<Self>;
+}
+
+impl Deserialize for Node<'_> {
+	fn deserialize(bump: &Bump, b: &mut impl Read) -> io::Result<Self> {
+		Ok(match u8::deserialize(bump, b)? {
+			0 => Node::Ret(
+				Deserialize::deserialize(bump, b)?, 
+				Deserialize::deserialize(bump, b)?),
+			1 => Node::Assign { 
+				id:   Deserialize::deserialize(bump, b)?,
+				ty:   Deserialize::deserialize(bump, b)?,
+				expr: Deserialize::deserialize(bump, b)?,
+			},
+			2 => Node::Store { 
+				to:   Deserialize::deserialize(bump, b)?,
+				ty:   Deserialize::deserialize(bump, b)?,
+				from: Deserialize::deserialize(bump, b)?,
+			},
+			3 => Node::Dbg { 
+				id:    Deserialize::deserialize(bump, b)?,
+				ident: Deserialize::deserialize(bump, b)?,
+			},
+			4 => Node::DefFn { 
+				id:       Deserialize::deserialize(bump, b)?,
+				args:     Deserialize::deserialize(bump, b)?, 
+				ret:      Deserialize::deserialize(bump, b)?,
+				def_proc: Deserialize::deserialize(bump, b)?,
+				body:     Deserialize::deserialize(bump, b)?,
+			},
+			_ => return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Tag")),
+		})
+	}
+}
+
+impl Deserialize for Expr<'_> {
+	fn deserialize(bump: &Bump, b: &mut impl Read) -> io::Result<Self> {
+		Ok(match u8::deserialize(bump, b)? {
+			0 => Expr::Call { 
+				id:   Deserialize::deserialize(bump, b)?,
+				ty:   Deserialize::deserialize(bump, b)?,
+				args: Deserialize::deserialize(bump, b)?,
+			},
+			1 => Expr::FuncCapture { 
+				fid:  Deserialize::deserialize(bump, b)?,
+				args: Deserialize::deserialize(bump, b)?,
+			},
+			2 => Expr::StrLit(Deserialize::deserialize(bump, b)?),
+			3 => Expr::ImplCall { 
+				path:  Deserialize::deserialize(bump, b)?,
+				ident: Deserialize::deserialize(bump, b)?,
+				gener: Deserialize::deserialize(bump, b)?,
+				args:  Deserialize::deserialize(bump, b)?,
+			},
+			4 => Expr::Imm(
+				IBig(Deserialize::deserialize(bump, b)?), 
+				Deserialize::deserialize(bump, b)?),
+			5 => Expr::DefCFn { 
+				sym:  Deserialize::deserialize(bump, b)?,
+				args: Deserialize::deserialize(bump, b)?,
+				ret:  Deserialize::deserialize(bump, b)?,
+			},
+			_ => return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Tag")),
+		})
+		
+	}
+}
+
+impl Deserialize for Var<'_> {
+	fn deserialize(bump: &Bump, b: &mut impl Read) -> io::Result<Self> {
+		Ok(match u8::deserialize(bump, b)? {
+			0 => Var::None,
+			1 => Var::Imm(IBig(Deserialize::deserialize(bump, b)?)),
+			2 => Var::Local(Deserialize::deserialize(bump, b)?),
+			_ => return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Tag")),
+		})
+	}
+}
+
+impl Deserialize for Type<'_> {
+	fn deserialize(bump: &Bump, b: &mut impl Read) -> io::Result<Self> {
+		Ok(match u8::deserialize(bump, b)? {
+			0 => Type::U(u32::deserialize(bump, b)?),
+			1 => Type::I(u32::deserialize(bump, b)?),
+			2 => Type::B(u32::deserialize(bump, b)?),
+			3 => Type::F(u32::deserialize(bump, b)?),
+			4 => Type::Usize,
+			5 => Type::Isize,
+			6 => Type::None,
+			7 => Type::Never,
+			8 => Type::Ptr(Deserialize::deserialize(bump, b)?),
+			9 => Type::Mut(Deserialize::deserialize(bump, b)?),
+			10 => Type::Fn(
+				Deserialize::deserialize(bump, b)?,
+				Deserialize::deserialize(bump, b)?),
+			11 => Type::Arr(
+				Deserialize::deserialize(bump, b)?,
+				Deserialize::deserialize(bump, b)?),
+			_ => return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Tag")),
+		})
+	}
+}
+
+macro_rules! deserialize_int {
+	($($ty:ty),*) => {
+		$(impl Deserialize for $ty {
+			fn deserialize(bump: &Bump, b: &mut impl Read) -> io::Result<Self> {
+				Ok(<$ty>::from_be_bytes(Deserialize::deserialize(bump, b)?))
+			}
+		})*
+	}
+}
+
+deserialize_int!(u8, u16, u32, u64, i8, i16, i32, i64);
+
+macro_rules! deserialize_tuple_inner {
+	($($ident:ident),*) => {
+		impl<$($ident: Deserialize),*> Deserialize for ($($ident),*) {
+			fn deserialize(bump: &Bump, b: &mut impl Read) -> io::Result<Self> {
+				Ok(($($ident::deserialize(bump, b)?),*))
+			}
+		}
+	}
+}
+
+macro_rules! deserialize_tuple {
+	($a:ident) => {};
+	($a:ident $(,$b:ident)*) => {
+		deserialize_tuple_inner!($a $(,$b)*);
+		deserialize_tuple!($($b),*);
+	};
+}
+
+deserialize_tuple!(A, B, C, D, E, F, G);
+
+impl<const N: usize> Deserialize for [u8; N] {
+	fn deserialize(_bump: &Bump, b: &mut impl Read) -> io::Result<Self> {
+		let mut bytes = [0u8; N];
+		b.read_exact(&mut bytes)?;
+		Ok(bytes)
+	}
+}
+
+impl<T: Deserialize> Deserialize for &[T] {
+	fn deserialize(bump: &Bump, b: &mut impl Read) -> io::Result<Self> {
+		let iter = (0..u32::deserialize(bump, b)?).map(|_| T::deserialize(bump, b));
+		bump.try_alloc_from_iter(iter)
+	}
+}
+
+impl Deserialize for &str {
+	fn deserialize(bump: &Bump, b: &mut impl Read) -> io::Result<Self> {
+		let len = u32::deserialize(bump, b)?;
+		let buf = bump.try_alloc_from_iter((0..len).map(|_| Deserialize::deserialize(bump, b)))?;
+		Ok(std::str::from_utf8(buf).map_err(
+			|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid UTF8"))?)
+	}
+}
+
+impl Deserialize for bool {
+	fn deserialize(bump: &Bump, b: &mut impl Read) -> io::Result<Self> {
+		Ok(u8::deserialize(bump, b)? != 0)
+	}
+}
+
+impl<T: Deserialize> Deserialize for Option<T> {
+	fn deserialize(bump: &Bump, b: &mut impl Read) -> io::Result<Self> {
+		bool::deserialize(bump, b)?.then(|| T::deserialize(bump, b)).transpose()
+	}
+}
+
+impl<T: Deserialize> Deserialize for &T {
+	fn deserialize(bump: &Bump, b: &mut impl Read) -> io::Result<Self> {
+		Ok(bump.alloc(T::deserialize(bump, b)?))
+	}
+}
+
+impl Deserialize for ValId {
+	fn deserialize(_bump: &Bump, b: &mut impl Read) -> io::Result<Self> {
+		Ok(ValId(Deserialize::deserialize(_bump, b)?))
+	}
+}
+
+impl Mir<'_> {
+	pub fn deserialize<'b>(bump: Bump, b: &mut (impl Read + Seek)) -> Option<io::Result<Mir<'b>>> {
+		let pos = match b.stream_position() {
 			Ok(p) => p,
 			Err(e) => return Some(Err(e)),
 		};
 
-		match deserialize_bytes::<{ MAGIC.len() }>(buf) {
+		match <[u8; MAGIC.len()] as Deserialize>::deserialize(&bump, b) {
 			Ok(m) if m != MAGIC => {
-				let _ = buf.seek(io::SeekFrom::Start(pos));
+				let _ = b.seek(io::SeekFrom::Start(pos));
 				return None
 			},
 			Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
-				let _ = buf.seek(io::SeekFrom::Start(pos));
+				let _ = b.seek(io::SeekFrom::Start(pos));
 				return None
 			},
 			Ok(_) => {},
 			Err(e) => return Some(Err(e)),
 		}
 
-		let deserialize = || -> io::Result<Mir<'b>> {
+		Some((|| {
 			Ok(Mir {
-				version: (
-					(u32::from_be_bytes(deserialize_bytes::<4>(buf)?),
-					deserialize_bytes::<1>(buf)?[0]),
-					deserialize_str(&bump, buf)?,
-				),
+				version: Deserialize::deserialize(&bump, b)?,
 				origin: {
-					let s = deserialize_str(&bump, buf)?;
+					let s = <&str as Deserialize>::deserialize(&bump, b)?;
 					s.is_empty().not().then_some(s)
 				},
-				nodes:   std::iter::from_fn(|| deserialize_node(&bump, buf).transpose()).collect::<io::Result<_>>()?,
+				nodes: (0..u32::deserialize(&bump, b)?)
+					.map(|_| Deserialize::deserialize(&bump, b))
+					.collect::<io::Result<Vec<Node>>>()?,
 				bump,
 			})
-		};
-
-		Some(deserialize())
-	}
-
-
-	fn deserialize_bytes<const N: usize>(buf: &mut impl Read) -> io::Result<[u8; N]> {
-		let mut bytes = [0u8; N];
-		buf.read_exact(&mut bytes)?;
-		Ok(bytes)
-	}
-
-	fn deserialize_node<'b>(bump: &Bump, buf: &mut impl Read) -> io::Result<Option<Node<'b>>> {
-		let flag = match deserialize_bytes::<1>(buf) {
-			Ok(f) => f[0],
-			Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
-			Err(e) => return Err(e),
-		};
-
-		Ok(Some(match flag {
-			0 => Node::Ret(
-				deserialize_var(bump, buf)?, 
-				deserialize_type(bump, buf)?),
-			1 => Node::Assign { 
-				id:     deserialize_valid(buf)?,
-				ty:     deserialize_type(bump, buf)?,
-				expr:   deserialize_expr(bump, buf)?,
-			},
-			2 => Node::Store { 
-				to:   deserialize_valid(buf)?,
-				ty:   deserialize_type(bump, buf)?,
-				from: deserialize_var(bump, buf)?,
-			},
-			3 => Node::Dbg { 
-				id:    deserialize_valid(buf)?,
-				ident: deserialize_str(bump, buf)?,
-			},
-			4 => {
-				let id = deserialize_valid(buf)?;
-
-				let args_len = u32::from_be_bytes(deserialize_bytes::<4>(buf)?) as usize;
-				let args = bump.try_alloc_from_iter((0..args_len).map(|_| {
-					let var = deserialize_valid(buf)?;
-					let ty  = deserialize_type(bump, buf)?;
-					io::Result::Ok((var, ty))
-				}))?;
-
-				let ret = deserialize_type(bump, buf)?;
-
-				let def_proc_len = u32::from_be_bytes(deserialize_bytes::<4>(buf)?) as usize;
-				let def_proc = bump.try_alloc_from_iter((0..def_proc_len).map(|_| {
-					let proc_id = deserialize_valid(buf)?;
-					let body_len = u32::from_be_bytes(deserialize_bytes::<4>(buf)?) as usize;
-					let body = bump.try_alloc_from_iter((0..body_len).map(|_| deserialize_node(bump, buf).and_then(
-						|n| n.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Unexpected EOF")))))?;
-					io::Result::Ok((proc_id, body))
-				}))?;
-
-				let body_len = u32::from_be_bytes(deserialize_bytes::<4>(buf)?) as usize;
-				let body = bump.try_alloc_from_iter((0..body_len).map(|_| deserialize_node(bump, buf).and_then(
-					|n| n.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Unexpected EOF")))))?;
-
-				Node::DefFn { id, args, ret, def_proc, body }
-			},
-			_ => return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Tag")),
-		}))
-	}
-
-	fn deserialize_expr<'b>(bump: &Bump, buf: &mut impl Read) -> io::Result<Expr<'b>> {
-		Ok(match deserialize_bytes::<1>(buf)?[0] {
-			0 => {
-				let id = deserialize_valid(buf)?;
-				let ty = deserialize_type(bump, buf)?;
-				let len = u32::from_be_bytes(deserialize_bytes::<4>(buf)?) as usize;
-				let args = bump.try_alloc_from_iter((0..len).map(|_| io::Result::Ok(
-					(deserialize_var(bump, buf)?,
-					deserialize_type(bump, buf)?))))?;
-
-				Expr::Call { id, ty, args }
-			},
-			1 => {
-				let fid = deserialize_valid(buf)?;
-				let len = u32::from_be_bytes(deserialize_bytes::<4>(buf)?) as usize;
-				let args = bump.try_alloc_from_iter((0..len).map(|_| deserialize_valid(buf)))?;
-				Expr::FuncCapture { fid, args }
-			},
-			2 => Expr::StrLit(deserialize_str(bump, buf)?),
-			3 => {
-				let path_len = u32::from_be_bytes(deserialize_bytes::<4>(buf)?) as usize;
-				let path = bump.try_alloc_from_iter((0..path_len).map(|_| deserialize_str(bump, buf)))?;
-
-				let ident = deserialize_str(bump, buf)?;
-
-				let gener_len = u32::from_be_bytes(deserialize_bytes::<4>(buf)?) as usize;
-				let gener = bump.try_alloc_from_iter((0..gener_len).map(|_| deserialize_type(bump, buf)))?;
-
-				let args_len = u32::from_be_bytes(deserialize_bytes::<4>(buf)?) as usize;
-				let args = bump.try_alloc_from_iter((0..args_len).map(|_| {
-					let var = deserialize_var(bump, buf)?;
-					let ty  = deserialize_type(bump, buf)?;
-					io::Result::Ok((var, ty))
-				}))?;
-
-				Expr::ImplCall { path, ident, gener, args }
-			},
-			4 => {
-				let len = u32::from_be_bytes(deserialize_bytes::<4>(buf)?) as usize;
-				let iter = bump.try_alloc_from_iter((0..len).map(|_| 
-					io::Result::Ok(u64::from_be_bytes(deserialize_bytes::<8>(buf)?))))?;
-				let ty = deserialize_type(bump, buf)?;
-				Expr::Imm(IBig(iter), ty)
-			},
-			5 => {
-				let sym = deserialize_str(bump, buf)?;
-
-				let len = u32::from_be_bytes(deserialize_bytes::<4>(buf)?) as usize;
-				let args = bump.try_alloc_from_iter((0..len).map(|_| deserialize_type(bump, buf)))?;
-
-				let ret = deserialize_type(bump, buf)?;
-
-				Expr::DefCFn { sym, args, ret }
-			},
-			_ => return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Tag")),
-		})
-	}
-
-	fn deserialize_var<'b>(bump: &Bump, buf: &mut impl Read) -> io::Result<Var<'b>> {
-		Ok(match deserialize_bytes::<1>(buf)?[0] {
-			0 => Var::None,
-			1 => {
-				let len = u32::from_be_bytes(deserialize_bytes::<4>(buf)?) as usize;
-				let iter = (0..len).map(|_| io::Result::Ok(u64::from_be_bytes(deserialize_bytes::<8>(buf)?)));
-				Var::Imm(IBig(bump.try_alloc_from_iter(iter)?))
-			},
-			2 => Var::Local(deserialize_valid(buf)?),
-			_ => return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Tag")),
-		})
-	}
-
-	fn deserialize_type<'b>(bump: &Bump, buf: &mut impl Read) -> io::Result<&'b Type<'b>> {
-		let ty = match deserialize_bytes::<1>(buf)?[0] {
-			0 => Type::U(u32::from_be_bytes(deserialize_bytes::<4>(buf)?)),
-			1 => Type::I(u32::from_be_bytes(deserialize_bytes::<4>(buf)?)),
-			2 => Type::B(u32::from_be_bytes(deserialize_bytes::<4>(buf)?)),
-			3 => Type::F(u32::from_be_bytes(deserialize_bytes::<4>(buf)?)),
-			4 => Type::Usize,
-			5 => Type::Isize,
-			6 => Type::None,
-			7 => Type::Never,
-			8 => Type::Ptr(deserialize_type(bump, buf)?),
-			9 => Type::Mut(deserialize_type(bump, buf)?),
-			10 => {
-				let len = u32::from_be_bytes(deserialize_bytes::<4>(buf)?) as usize;
-				let args = bump.try_alloc_from_iter((0..len).map(|_| deserialize_type(bump, buf)))?;
-				let ret = deserialize_type(bump, buf)?;
-				Type::Fn(args, ret)
-			},
-			11 => {
-				let t = deserialize_type(bump, buf)?;
-				let size = match deserialize_bytes::<1>(buf)?[0] != 0 {
-					true => Some(u64::from_be_bytes(deserialize_bytes::<8>(buf)?)),
-					_    => None,
-				};
-				Type::Arr(t, size)
-			},
-			_ => return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Tag")),
-		};
-
-		Ok(bump.alloc(ty))
-	}
-
-	fn deserialize_valid(buf: &mut impl Read) -> io::Result<ValId> {
-		Ok(ValId(u64::from_be_bytes(deserialize_bytes::<8>(buf)?)))
-	}
-
-	fn deserialize_str<'b>(bump: &Bump, buf: &mut impl Read) -> io::Result<&'b str> {
-		let len = u32::from_be_bytes(deserialize_bytes::<4>(buf)?) as usize;
-		let buf = bump.try_alloc_from_iter((0..len).map(|_| deserialize_bytes::<1>(buf).map(|b| b[0])))?;
-
-		Ok(bump.alloc_str(std::str::from_utf8(buf).map_err(
-			|e| io::Error::new(io::ErrorKind::InvalidData, "Invalid UTF8"))?))
+		})())
 	}
 }

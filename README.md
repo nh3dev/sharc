@@ -33,6 +33,25 @@ let average = |nums: &[u32]|: u32 {
 average(&[1, 2, 3, 4, 5]) // => 3
 ```
 
+```rs
+let Box = |t: type| raw &mut t;
+
+let<T> box = |v: T|: Box(T) {
+	let<T> malloc = extern "malloc" |size: usize|: raw &mut T;
+	let ptr = malloc(core::tyinfo(T).size);
+	*ptr = v;
+	ptr
+};
+
+impl<T> core::Drop |self: Box(T)| {
+	let<T> free = extern "free" |ptr: raw &mut T|;
+	free(self);
+};
+
+let x: Box(i32) = box(5);
+core::Drop(x);
+```
+
 # TODOS
 - [x] rework parser to support new typing behaviour
 	- [x] rework analysis to follow
