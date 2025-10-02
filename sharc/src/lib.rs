@@ -1,11 +1,10 @@
-#![deny(clippy::complexity,clippy::suspicious,clippy::correctness,clippy::cargo,
-	clippy::perf,clippy::pedantic,clippy::nursery)]
-#![allow(clippy::style,clippy::restriction,clippy::match_bool,clippy::too_many_lines,
+#![deny(clippy::complexity,clippy::suspicious,clippy::correctness,clippy::perf,clippy::nursery)]
+#![allow(clippy::restriction,clippy::match_bool,clippy::too_many_lines,
 	clippy::single_match_else,clippy::ignored_unit_patterns,clippy::module_name_repetitions,
 	clippy::needless_for_each,clippy::derive_partial_eq_without_eq,clippy::missing_const_for_fn,
 	clippy::cognitive_complexity,clippy::option_if_let_else,clippy::option_map_unit_fn,
-	clippy::similar_names,clippy::cast_possible_truncation,clippy::cargo_common_metadata,
-	clippy::must_use_candidate, clippy::return_self_not_must_use, clippy::missing_errors_doc)]
+	clippy::similar_names,clippy::cast_possible_truncation, clippy::must_use_candidate, 
+	clippy::return_self_not_must_use, clippy::upper_case_acronyms)]
 
 
 #![feature(if_let_guard)]

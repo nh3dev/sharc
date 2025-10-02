@@ -6,6 +6,8 @@ mod args;
 mod motd;
 mod logger;
 
+static LOGGER: LazyLock<Mutex<logger::Logger>> = LazyLock::new(|| Mutex::new(logger::Logger::new()));
+
 fn compile_mir<'b>(conf: sharc::CompilerOptions, code: &str, filename: Option<&str>) -> Result<sharc::mir::Mir<'b>, ()> {
 	match sharc::Compiler::new(conf)
 		.report_callback(|r| LOGGER.lock().unwrap().log(r))
@@ -18,8 +20,6 @@ fn compile_mir<'b>(conf: sharc::CompilerOptions, code: &str, filename: Option<&s
 		}
 	}
 }
-
-static LOGGER: LazyLock<Mutex<logger::Logger>> = LazyLock::new(|| Mutex::new(logger::Logger::new()));
 
 fn main() {
 	let args = args::Args::parse(std::env::args().skip(1));

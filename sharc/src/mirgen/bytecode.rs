@@ -1,7 +1,7 @@
 use std::ops::Not;
 use bump::Bump;
 
-use super::mir::*;
+use super::mir::{Expr, Mir, Node, Type, Var, ValId};
 use crate::IBig;
 
 const MAGIC: &[u8] = b"SHARDBC";
@@ -173,22 +173,17 @@ macro_rules! serialize_int {
 
 serialize_int!(u8, u16, u32, u64, i8, i16, i32, i64);
 
-macro_rules! serialize_tuple_inner {
-	($($ident:ident),*) => {
-		impl<$($ident: Serialize),*> Serialize for ($($ident),*) {
-			fn serialize(&self, b: &mut impl Write) -> io::Result<()> {
-				let ($($ident),*) = self;
-				$($ident.serialize(b)?;)*
-				Ok(())
-			}
-		}
-	}
-}
-
 macro_rules! serialize_tuple {
 	($a:ident) => {};
 	($a:ident $(,$b:ident)*) => {
-		serialize_tuple_inner!($a $(,$b)*);
+		impl<$a: Serialize, $($b: Serialize),*> Serialize for ($a, $($b),*) {
+			fn serialize(&self, b: &mut impl Write) -> io::Result<()> {
+				let ($a, $($b),*) = self;
+				$a.serialize(b)?;
+				$($b.serialize(b)?;)*
+				Ok(())
+			}
+		}
 		serialize_tuple!($($b),*);
 	};
 }
@@ -203,7 +198,7 @@ impl Serialize for ValId {
 
 impl Serialize for bool {
 	fn serialize(&self, b: &mut impl Write) -> io::Result<()> {
-		b.write_all(&[*self as u8])
+		b.write_all(&[u8::from(*self)])
 	}
 }
 
@@ -353,20 +348,18 @@ macro_rules! deserialize_int {
 
 deserialize_int!(u8, u16, u32, u64, i8, i16, i32, i64);
 
-macro_rules! deserialize_tuple_inner {
-	($($ident:ident),*) => {
-		impl<$($ident: Deserialize),*> Deserialize for ($($ident),*) {
-			fn deserialize(bump: &Bump, b: &mut impl Read) -> io::Result<Self> {
-				Ok(($($ident::deserialize(bump, b)?),*))
-			}
-		}
-	}
-}
-
 macro_rules! deserialize_tuple {
 	($a:ident) => {};
 	($a:ident $(,$b:ident)*) => {
-		deserialize_tuple_inner!($a $(,$b)*);
+		impl<$a: Deserialize, $($b: Deserialize),*> Deserialize for ($a, $($b),*) {
+			fn deserialize(bump: &Bump, b: &mut impl Read) -> io::Result<Self> {
+				Ok((
+					$a::deserialize(bump, b)?,
+					$($b::deserialize(bump, b)?),*
+				))
+			}
+		}
+
 		deserialize_tuple!($($b),*);
 	};
 }
@@ -392,8 +385,8 @@ impl Deserialize for &str {
 	fn deserialize(bump: &Bump, b: &mut impl Read) -> io::Result<Self> {
 		let len = u32::deserialize(bump, b)?;
 		let buf = bump.try_alloc_from_iter((0..len).map(|_| Deserialize::deserialize(bump, b)))?;
-		Ok(std::str::from_utf8(buf).map_err(
-			|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid UTF8"))?)
+		std::str::from_utf8(buf).map_err(
+			|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid UTF8"))
 	}
 }
 
@@ -416,8 +409,8 @@ impl<T: Deserialize> Deserialize for &T {
 }
 
 impl Deserialize for ValId {
-	fn deserialize(_bump: &Bump, b: &mut impl Read) -> io::Result<Self> {
-		Ok(ValId(Deserialize::deserialize(_bump, b)?))
+	fn deserialize(bump: &Bump, b: &mut impl Read) -> io::Result<Self> {
+		Ok(Self(Deserialize::deserialize(bump, b)?))
 	}
 }
 

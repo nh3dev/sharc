@@ -12,7 +12,7 @@ impl IBig<'_> {
 	}
 
 	pub fn from_u64(bump: &Bump, i: u64) -> Self {
-		Self(bump.alloc_sized_slice([i]))
+		Self(bump.alloc_array([i]))
 	}
 
 	pub fn try_as_u32(&self) -> Option<u32> {

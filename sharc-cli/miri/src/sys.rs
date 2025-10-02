@@ -20,13 +20,13 @@ mod unix {
 	static CURRENT_PROCESS: LazyLock<DlHandle> = LazyLock::new(|| 
 		unsafe { dlopen(std::ptr::null(), 0x0) });
 
-	pub fn ldsym(symbol: &str) -> *const c_void {
+	pub unsafe fn ldsym(symbol: &str) -> *const c_void {
 		unsafe { dlsym(*CURRENT_PROCESS, symbol.as_bytes().as_ptr()) }
 	}
 }
 
 #[cfg(not(unix))]
-pub fn ldsym(symbol: &str) -> *const c_void {
+pub unsafe fn ldsym(symbol: &str) -> *const c_void {
 	compile_warn::compile_warn!("miri extern functions are not supported on this platform");
 	unimplemented!("miri extern functions are not supported on this platform")
 }

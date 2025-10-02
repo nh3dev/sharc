@@ -6,6 +6,8 @@ use crate::span::Sp;
 
 #[derive(Debug)]
 pub enum Node<'src, 'b> {
+	None,
+
 	Let {
 		ident: Sp<&'src str>,
 		ty:    Option<&'b RefCell<Type<'src, 'b>>>,
@@ -103,9 +105,11 @@ impl<'src, 'b> Type<'src, 'b> {
 	}
 }
 
+pub const CONSTRAINT_VEC_SIZE: usize = 4;
+
 #[derive(Debug, PartialEq)]
 pub enum TypeKind<'src, 'b> {
-	Generic(usize),
+	Generic(usize, bump::Vec<'b, TypeKind<'src, 'b>>),
 
 	Array(&'b RefCell<Type<'src, 'b>>, Option<u64>),
 	Union(&'b [&'b RefCell<Type<'src, 'b>>]),
@@ -120,7 +124,6 @@ pub enum TypeKind<'src, 'b> {
 }
 
 
-
 fn join_tostring(iter: impl IntoIterator<Item = impl ToString>, s: &str) -> String {
 	iter.into_iter().map(|e| ToString::to_string(&e)).collect::<std::vec::Vec<_>>().join(s)
 }
@@ -132,6 +135,8 @@ fn join_cell_tostring<'a>(iter: impl IntoIterator<Item = &'a &'a RefCell<impl To
 impl Display for Node<'_, '_> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
+			Self::None => write!(f, "{}", "none".dimmed()),
+
 			Self::Let { ident, ty, gener, expr, stat } =>
 				write!(f, "{} {ident}{}{} = {expr}",
 					if *stat { "static" } else { "let" }.yellow().dimmed(),
@@ -170,7 +175,7 @@ impl Display for Node<'_, '_> {
 			Self::Block(body) => match &body[..] {
 				[]  => Ok(()),
 				[n] => write!(f, "{{ {n} }}"),
-				ref n => {
+				n => {
 					writeln!(f, "{{")?;
 					n.iter().enumerate().try_for_each(
 						|(i, stmt)| writeln!(f, "  {stmt}{}",
@@ -275,7 +280,7 @@ impl fmt::Display for TypeKind<'_, '_> {
 				Ok(())
 			},
 			k => write!(f, "{}", match k {
-				Self::Generic(v) => format!("${v}"),
+				Self::Generic(v, c) => format!("${v}{c:?}"),
 				Self::U(u)  => format!("u{u}"),
 				Self::I(i)  => format!("i{i}"),
 				Self::B(b)  => format!("b{b}"),

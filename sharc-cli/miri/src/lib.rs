@@ -95,7 +95,7 @@ impl<'b> Runtime {
 					val.ty = Type::from_mir(ty);
 					self.assign(id.0 as usize, val.into_owned());
 				},
-				Node::Ret(val, ty) => return self.resolve_var(&val, ty),
+				Node::Ret(val, ty) => return self.resolve_var(val, ty),
 				Node::Store { to, ty, from } => { // assumes the type remains the same
 					let val = self.resolve_var(from, ty)?;
 					self.store(to.0 as usize, val.val.clone());
@@ -113,13 +113,13 @@ impl<'b> Runtime {
 		Ok(match expr {
 			Expr::ImplCall { path: ["core"], ident, gener, args } => match *ident {
 				"Add" => {
-					let lhs = self.resolve_var(&args[0].0, &args[0].1)?;
-					let rhs = self.resolve_var(&args[1].0, &args[1].1)?;
+					let lhs = self.resolve_var(&args[0].0, args[0].1)?;
+					let rhs = self.resolve_var(&args[1].0, args[1].1)?;
 
 					Sheep::Owned(Value::add(&lhs, &rhs, gener.get(2).map(|t| Type::from_mir(t))))
 				},
 				"As" => {
-					self.resolve_var(&args[0].0, &gener[0])?
+					self.resolve_var(&args[0].0, gener[0])?
 				},
 				_ => Sheep::Owned(Value::none()),
 			},
@@ -166,7 +166,7 @@ impl<'b> Runtime {
 						.as_err();
 				};
 
-				let val = RawVal::to_val(unsafe { cif.call(fptr, &args) }, ret);
+				let val = RawVal::into_val(unsafe { cif.call(fptr, &args) }, ret);
 
 				Sheep::Owned(Value::new(val?, (**ret).clone()))
 			},

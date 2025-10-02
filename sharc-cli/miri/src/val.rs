@@ -126,7 +126,7 @@ pub union RawVal {
 }
 
 impl RawVal {
-	pub fn to_val(self, ty: &Type) -> Result<Val> {
+	pub fn into_val(self, ty: &Type) -> Result<Val> {
 		unsafe {
 			Ok(match ty {
 				Type::None  => Val::None,
@@ -137,9 +137,9 @@ impl RawVal {
 				Type::U(..128)| Type::I(..128) => Val::Int128(self.int128),
 				Type::Usize   | Type::Isize    => match std::mem::size_of::<usize>() {
 					..16  => Val::Int16(self.int16),
-					..32  => Val::Int32(self.int32),
-					..64  => Val::Int64(self.int64),
-					..128 => Val::Int128(self.int128),
+					32  => Val::Int32(self.int32),
+					64  => Val::Int64(self.int64),
+					128 => Val::Int128(self.int128),
 					_     => unreachable!(),
 				},
 				Type::U(_)    | Type::I(_)     => panic!("unsupported integer size for rawval"),

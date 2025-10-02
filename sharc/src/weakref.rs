@@ -6,8 +6,8 @@ pub struct WeakRef<T: ?Sized> {
 }
 
 pub struct WeakRefGuard<'a, T: ?Sized> {
-	lock: RwLockReadGuard<'a, bool>,
-	data: &'a T,
+	_lock: RwLockReadGuard<'a, bool>,
+	data:  &'a T,
 }
 
 impl<T: ?Sized> WeakRef<T> {
@@ -22,7 +22,7 @@ impl<T: ?Sized> WeakRef<T> {
 		let Ok(lock) = self.drop_flag.read() else { return None; };
 		if *lock { return None; }
 
-		Some(WeakRefGuard { lock, data:  unsafe { &*self.data } })
+		Some(WeakRefGuard { _lock: lock, data:  unsafe { &*self.data } })
 	}
 
 	pub fn drop(&self) {

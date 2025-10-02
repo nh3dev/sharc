@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::cell::RefCell;
 
 use crate::report::{Result, ReportKind, Reportable};
@@ -76,8 +75,8 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 		};
 
 		let hir_len = hir.len();
-		let mir = hir.into_iter().enumerate().flat_map(
-			|(i, node)| analyzer.process_node(i == hir_len - 1, &node).map_or_else(
+		let mir = hir.iter().enumerate().flat_map(
+			|(i, node)| analyzer.process_node(i == hir_len - 1, node).map_or_else(
 				|l| { analyzer.reporter.nom(*l); Vec::new().into_iter() }, 
 				|(_, _, n)| n.into_iter()))
 			.collect::<Vec<_>>();
@@ -101,7 +100,7 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 			hir::Node::ImplCall { path, ident, gener, vals } => {
 				let gener = self.bump.alloc_from_iter(gener.iter().map(|g| self.process_type(g)));
 
-				let args = vals.into_iter().map(|val| {
+				let args = vals.iter().map(|val| {
 					let (var, ty, n_nodes) = self.process_node(false, val)?;
 					nodes.extend(n_nodes);
 					Ok((var, ty))
@@ -216,7 +215,7 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 				let has_default = args.iter().any(|a| a.default.is_some());
 				if has_default { todo!() }
 
-				let args = self.bump.alloc_from_iter(args.into_iter().map(|a| self.process_type(a.ty.unwrap())));
+				let args = self.bump.alloc_from_iter(args.iter().map(|a| self.process_type(a.ty.unwrap())));
 				let ret = ret.map_or(&TY_NONE, |r| self.process_type(r));
 
 				let id = self.scope().id();
@@ -224,7 +223,7 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 				nodes.push(Node::Assign { 
 					id, ty, expr: Expr::DefCFn { 
 					args, ret, 
-					sym: self.bump.alloc_str(&sym) 
+					sym: self.bump.alloc_str(sym) 
 				} });
 
 				Var::Local(id)
@@ -240,7 +239,7 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 
 				let id = self.scope().id();
 
-				let args = its_fine!(self.bump).try_alloc_from_iter(args.into_iter().map(|arg| {
+				let args = its_fine!(self.bump).try_alloc_from_iter(args.iter().map(|arg| {
 					let (var, ty, n_nodes) = self.process_node(false, arg)?;
 					nodes.extend(n_nodes);
 					Result::Ok((var, ty))
@@ -289,7 +288,7 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 			hir::TypeKind::Isize => &ISIZE,
 			hir::TypeKind::Fn(a, r) => {
 				self.bump.alloc(Type::Fn(
-					self.bump.alloc_from_iter(a.into_iter().map(|a| self.process_type(a))),
+					self.bump.alloc_from_iter(a.iter().map(|a| self.process_type(a))),
 					r.map_or(&TY_NONE, |r| self.process_type(r))))
 			},
 			hir::TypeKind::Ref(t) => self.bump.alloc(Type::Ptr(self.process_type(t))),

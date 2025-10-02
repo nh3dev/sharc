@@ -127,7 +127,7 @@ impl Display for Node<'_, '_> {
 			Self::Block(body) => match &body[..] {
 				[]  => Ok(()),
 				[n] => write!(f, "{{ {n} }}"),
-				ref n => {
+				n => {
 					writeln!(f, "{{")?;
 					n.iter().enumerate().try_for_each(
 						|(i, stmt)| writeln!(f, "  {stmt}{}",

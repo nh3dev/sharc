@@ -4,7 +4,7 @@ use crate::parser::ast::{self, Node};
 use crate::report::{Report, ReportKind, Result, Reportable};
 use crate::span::{Span, Sp, Spannable};
 
-use bump::Bump;
+use bump::{Bump, CollectWith};
 
 pub mod hir;
 use hir::{TypeInf as _, Ty, Type, TypeKind, Node as TyNode, LambdaArg as TyLambdaArg};
@@ -44,9 +44,16 @@ impl<'src, 'b> Scope<'src, 'b> {
 }
 
 impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
-	// yea yea okay mai
+	// SAFETY: we only ever get immutable refs to the bump. 
+	// SAFETY: this is technically forbidden but it's *mostly* fine..
 	fn bump(&self) -> &'static Bump {
 		unsafe { std::mem::transmute(&self.bump) }
+	}
+
+	fn newid(&mut self) -> usize {
+		let id = self.gener_id;
+		self.gener_id += 1;
+		id
 	}
 
 	#[inline]
@@ -79,29 +86,49 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 			gener_id: 0,
 		};
 
-		let hir = match inf.infer_node(ast.span(Span::new(0))) {
-			Ok(n) => {
-				let Ty { elem, ty } = n;
-				elem.elem.typed(ty)
-			},
-			Err(l) => {
-				// should realistically pretty much never happen
-				inf.log(*l); 
-				TyNode::Block(&[]).typed(inf.bump.alloc(Type::new(TypeKind::None).into()))
-			},
+		let Some(Ty { elem, ty }) = inf.infer_node(&ast.span(Span::new(0))) else {
+			let ty = inf.bump.alloc(RefCell::new(Type::new(TypeKind::None)));
+			return (TyNode::None.typed(ty), ast_bump);
 		};
 
 		std::mem::drop(ast_bump);
-		(hir, inf.bump)
+		(elem.elem.typed(ty), inf.bump)
 	}
 
-	fn infer_node(&mut self, node: Sp<Node<'src, 'bo>>) 
-		-> Result<Ty<'src, 'b, Sp<TyNode<'src, 'b>>>> {
+	fn infer_node(&mut self, node: &Sp<Node<'src, 'bo>>) 
+		-> Option<Ty<'src, 'b, Sp<TyNode<'src, 'b>>>> {
 
-		match node.elem {
+		Some(match node.elem {
+			Node::None => {
+				let ty = self.bump.alloc(RefCell::new(Type::new(TypeKind::None)));
+				TyNode::None.span(node.span).typed(ty)
+			},
+			Node::Block(exprs) => {
+				let bump = self.bump();
+
+				let exprs = exprs.iter()
+					.filter_map(|e| self.infer_node(e))
+					.collect_with(bump.alloc_vec(exprs.len()));
+
+				let ty = match exprs.last() {
+					Some(e) => e.ty,
+					None    => self.bump.alloc(RefCell::new(Type::new(TypeKind::None))),
+				};
+
+				TyNode::Block(exprs.into_slice()).span(node.span).typed(ty)
+			},
+			Node::IntLit(i) => {
+				let id   = self.newid();
+				let mut cons = self.bump.alloc_vec(hir::CONSTRAINT_VEC_SIZE);
+				cons.push(TypeKind::U(i.min_bit_size())).unwrap();
+
+				TyNode::IntLit(i.copy(&self.bump)).span(node.span)
+					.typed(self.bump.alloc(RefCell::new(Type::new(TypeKind::Generic(id, cons)))))
+			},
 			_ => todo!("{:?}", node.elem),
-		}
+		})
 	}
+}
 
 	// pub fn resolve_type(&mut self, node: &Ty<'src, 'b, Sp<TyNode<'src, 'b>>>) -> Result<&'b Type<'src, 'b>> {
 	// 	if !matches!(node.ty.kind, TypeKind::Type) {
@@ -486,4 +513,4 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 	// 		n => todo!("{n:?}"),
 	// 	})
 	// }
-}
+	// }

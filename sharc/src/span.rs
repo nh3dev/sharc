@@ -69,9 +69,9 @@ impl<T> Spannable for T {}
 impl<T: Display> Display for Sp<T> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		static DBG_SPAN: OnceLock<bool> = OnceLock::new();
-		match DBG_SPAN.get_or_init(|| !std::env::var("SHARC_DBG_SPAN").is_ok()) {
-			true  => write!(f, "{}", self.elem),
-			false => write!(f, "{} {}", self.span, self.elem)
+		match DBG_SPAN.get_or_init(|| std::env::var("SHARC_DBG_SPAN").is_ok()) {
+			true => write!(f, "{} {}", self.span, self.elem),
+			_    => write!(f, "{}", self.elem),
 		}
 	}
 }

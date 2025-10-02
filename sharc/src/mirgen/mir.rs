@@ -1,7 +1,6 @@
 use std::fmt;
 use colored::Colorize;
 use crate::bigint::IBig;
-use crate::span::Sp;
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Default, Debug, Eq, Hash, PartialEq)]
@@ -129,7 +128,7 @@ impl fmt::Display for Node<'_> {
 					writeln!(f, "  }}")?;
 				}
 
-				if def_proc.len() > 0 { writeln!(f)?; }
+				if !def_proc.is_empty() { writeln!(f)?; }
 
 				for n in *body {
 					writeln!(f, "  {n}")?;

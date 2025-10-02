@@ -185,6 +185,7 @@ impl<R: Reportable + fmt::Debug> fmt::Debug for Report<R> {
 }
 
 impl<R: Reportable + fmt::Debug> Display for Report<R> {
+	#[allow(clippy::significant_drop_tightening)]
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		assert!(self.span.is_some() || self.label.is_none());
 
