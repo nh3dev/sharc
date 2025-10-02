@@ -51,18 +51,9 @@ impl crate::Bump {
 		data
 	} 
 
-	pub fn alloc_array_rc<'bump, const N: usize, T>(&self, val: [T; N]) -> Rc<'bump, [T; N]> {
-		let size = std::mem::size_of_val(&val) + std::mem::size_of::<RcInner<()>>();
-		let data = self.alloc_size::<RcInner<T>>(size) as *mut RcInner<T>;
 
-		unsafe {
-			(*data).count.set(0);
-			val.into_iter().enumerate().for_each(|(i, e)| std::ptr::write((&raw mut (*data).data).add(i), e));
-			Rc(&*std::ptr::from_raw_parts::<RcInner<[T; N]>>(data, ()))
-		}
-	}
-
-	pub fn alloc_sized_slice_rc<'bump, const N: usize, T>(&self, val: [T; N]) -> Rc<'bump, [T]> {
+	#[inline]
+	pub fn alloc_array_rc<'bump, const N: usize, T>(&self, val: [T; N]) -> Rc<'bump, [T]> {
 		let size = std::mem::size_of_val(&val) + std::mem::size_of::<RcInner<()>>();
 		let data = self.alloc_size::<RcInner<T>>(size) as *mut RcInner<T>;
 
@@ -70,6 +61,20 @@ impl crate::Bump {
 			(*data).count.set(0);
 			val.into_iter().enumerate().for_each(|(i, e)| std::ptr::write((&raw mut (*data).data).add(i), e));
 			Rc(&*std::ptr::from_raw_parts::<RcInner<[T]>>(data, N))
+		}
+	}
+
+	#[inline]
+	pub fn alloc_array_dyn_rc<'bump, T>(&self, mut f: impl FnMut() -> T, len: usize) -> Rc<'bump, [T]> {
+		if len == 0 { return self.alloc_array_rc([]); }
+
+		let size = len * std::mem::size_of::<T>() + std::mem::size_of::<RcInner<()>>();
+		let data = self.alloc_size::<RcInner<T>>(size) as *mut RcInner<T>;
+
+		unsafe {
+			(*data).count.set(0);
+			(0..len).for_each(|i| std::ptr::write((&raw mut (*data).data).add(i), f()));
+			Rc(&*std::ptr::from_raw_parts::<RcInner<[T]>>(data, len))
 		}
 	}
 

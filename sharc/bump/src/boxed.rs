@@ -37,21 +37,34 @@ impl crate::Bump {
 		data
 	}
 
-	pub fn alloc_array_box<'bump, const N: usize, T>(&self, val: [T; N]) -> Box<'bump, [T; N]> {
-		let data = self.alloc_size::<T>(std::mem::size_of_val(&val)) as *mut T;
+	#[inline]
+	pub fn alloc_str_box<'bump>(&self, val: &str) -> Box<'bump, str> {
+		let data = self.alloc_size::<u8>(val.len()) as *mut u8;
 
 		unsafe {
-			val.into_iter().enumerate().for_each(|(i, e)| std::ptr::write(data.add(i), e));
-			Box(std::slice::from_raw_parts_mut(data, N).try_into().unwrap())
+			std::ptr::copy_nonoverlapping(val.as_ptr(), data, val.len()); 
+			Box(std::str::from_utf8_unchecked_mut(std::slice::from_raw_parts_mut(data, val.len())))
 		}
 	}
 
-	pub fn alloc_sized_slice_box<'bump, const N: usize, T>(&self, val: [T; N]) -> Box<'bump, [T]> {
+	#[inline]
+	pub fn alloc_array_box<'bump, const N: usize, T>(&self, val: [T; N]) -> Box<'bump, [T]> {
 		let data = self.alloc_size::<T>(std::mem::size_of_val(&val)) as *mut T;
 
 		unsafe {
 			val.into_iter().enumerate().for_each(|(i, e)| std::ptr::write(data.add(i), e));
 			Box(std::slice::from_raw_parts_mut(data, N))
+		}
+	}
+
+	#[inline]
+	pub fn alloc_array_dyn_box<'bump, T>(&self, mut f: impl FnMut() -> T, len: usize) -> Box<'bump, [T]> {
+		if len == 0 { return Box::empty_slice() }
+		let data = self.alloc_size::<T>(len * std::mem::size_of::<T>()) as *mut T;
+
+		unsafe {
+			(0..len).for_each(|i| std::ptr::write(data.add(i), f()));
+			Box(std::slice::from_raw_parts_mut(data, len))
 		}
 	}
 

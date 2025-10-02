@@ -10,9 +10,11 @@ mod sys;
 mod boxed;
 mod rc;
 mod r#ref;
+mod vec;
 
 pub use boxed::{Box, BoxIter};
 pub use rc::Rc;
+pub use vec::{Vec, CollectWith};
 
 pub struct Bump {
 	chunk:     Cell<Option<NonNull<Chunk>>>,

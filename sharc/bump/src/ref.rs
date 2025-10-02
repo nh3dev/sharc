@@ -35,15 +35,7 @@ impl crate::Bump {
 		data
 	}
 
-	pub fn alloc_array<'bump, const N: usize, T>(&self, val: [T; N]) -> &'bump [T; N] {
-		let data = self.alloc_size::<T>(std::mem::size_of_val(&val)) as *mut T;
-
-		unsafe {
-			val.into_iter().enumerate().for_each(|(i, e)| std::ptr::write(data.add(i), e));
-			std::slice::from_raw_parts(data, N).try_into().unwrap()
-		}
-	}
-
+	#[inline]
 	pub fn alloc_str<'bump>(&self, val: &str) -> &'bump str {
 		let data = self.alloc_size::<u8>(val.len()) as *mut u8;
 
@@ -53,12 +45,24 @@ impl crate::Bump {
 		}
 	}
 
-	pub fn alloc_sized_slice<'bump, const N: usize, T>(&self, val: [T; N]) -> &'bump [T] {
+	#[inline]
+	pub fn alloc_array<'bump, const N: usize, T>(&self, val: [T; N]) -> &'bump [T] {
 		let data = self.alloc_size::<T>(std::mem::size_of_val(&val)) as *mut T;
 
 		unsafe {
 			val.into_iter().enumerate().for_each(|(i, e)| std::ptr::write(data.add(i), e));
 			std::slice::from_raw_parts(data, N)
+		}
+	}
+
+	#[inline]
+	pub fn alloc_array_dyn<'bump, T>(&self, mut f: impl FnMut() -> T, len: usize) -> &'bump [T] {
+		if len == 0 { return &[][..] }
+		let data = self.alloc_size::<T>(len * std::mem::size_of::<T>()) as *mut T;
+
+		unsafe {
+			(0..len).for_each(|i| std::ptr::write(data.add(i), f()));
+			std::slice::from_raw_parts(data, len)
 		}
 	}
 
@@ -135,15 +139,18 @@ impl crate::Bump {
 		data
 	}
 
-	pub fn alloc_array_mut<'bump, const N: usize, T>(&self, val: [T; N]) -> &'bump mut [T; N] {
-		let data = self.alloc_size::<T>(std::mem::size_of_val(&val)) as *mut T;
+	#[inline]
+	pub fn alloc_array_dyn_mut<'bump, T>(&self, mut f: impl FnMut() -> T, len: usize) -> &'bump mut [T] {
+		if len == 0 { return &mut [][..] }
+		let data = self.alloc_size::<T>(len * std::mem::size_of::<T>()) as *mut T;
 
 		unsafe {
-			val.into_iter().enumerate().for_each(|(i, e)| std::ptr::write(data.add(i), e));
-			std::slice::from_raw_parts_mut(data, N).try_into().unwrap()
+			(0..len).for_each(|i| std::ptr::write(data.add(i), f()));
+			std::slice::from_raw_parts_mut(data, len)
 		}
 	}
 
+	#[inline]
 	pub fn alloc_str_mut<'bump>(&self, val: &str) -> &'bump mut str {
 		let data = self.alloc_size::<u8>(val.len()) as *mut u8;
 
@@ -153,7 +160,8 @@ impl crate::Bump {
 		}
 	}
 
-	pub fn alloc_sized_slice_mut<'bump, const N: usize, T>(&self, val: [T; N]) -> &'bump mut [T] {
+	#[inline]
+	pub fn alloc_array_mut<'bump, const N: usize, T>(&self, val: [T; N]) -> &'bump mut [T] {
 		let data = self.alloc_size::<T>(std::mem::size_of_val(&val)) as *mut T;
 
 		unsafe {
