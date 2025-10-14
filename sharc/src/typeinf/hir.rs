@@ -67,7 +67,7 @@ pub enum Node<'src, 'b> {
 #[derive(Debug)]
 pub struct LambdaArg<'src, 'b> {
 	pub ident:   Sp<&'src str>,
-	pub ty:      Option<&'b RefCell<Type<'src, 'b>>>,
+	pub ty:      &'b RefCell<Type<'src, 'b>>,
 	pub default: Option<Ty<'src, 'b, Sp<Node<'src, 'b>>>>,
 }
 
@@ -265,8 +265,7 @@ impl Display for Node<'_, '_> {
 
 impl Display for LambdaArg<'_, '_> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "{}", self.ident.normal())?;
-		if let Some(ty) = &self.ty { write!(f, ": {}", ty.borrow())?; }
+		write!(f, "{}: {}", self.ident.normal(), self.ty.borrow())?;
 		if let Some(def) = &self.default { write!(f, " = {def}")?; }
 		Ok(())
 	}

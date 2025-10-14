@@ -191,13 +191,15 @@ impl<'src, 'b, 'r> Parser<'src, 'b, 'r> {
 						.span(self.current().span).as_err(),
 				};
 
+				let end = self.current().span;
+
 				self.advance_if(|t| matches!(t, TokenKind::RBracket)).then_some(())
 					.ok_or_else(|| ReportKind::UnexpectedToken
 						.title(format!("Expected ']', got '{:?}'", self.current().kind))
 						.span(self.current().span))?;
 
 				Node::ArrayLit(self.bump.alloc_from_vec(elems), size)
-					.span(token.span.extend(&self.current().span))
+					.span(token.span.extend(&end))
 			},
 			TokenKind::LParen => {
 				enum Kind { Union, Struct, None }

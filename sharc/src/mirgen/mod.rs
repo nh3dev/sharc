@@ -232,7 +232,7 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 				let has_default = args.iter().any(|a| a.default.is_some());
 				if has_default { todo!() }
 
-				let args = self.bump.alloc_from_iter(args.iter().map(|a| self.process_type(a.ty.unwrap())));
+				let args = self.bump.alloc_from_iter(args.iter().map(|a| self.process_type(a.ty)));
 				let ret = self.process_type(ret);
 
 				let id = self.scope().id();
