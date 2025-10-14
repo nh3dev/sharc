@@ -76,6 +76,8 @@ pub enum ReportKind {
 	NodeNotAnExpr,	
 
 	_FATAL_,
+
+	InternalError,
 }
 
 impl Display for ReportKind {

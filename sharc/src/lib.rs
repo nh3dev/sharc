@@ -8,6 +8,7 @@
 
 
 #![feature(if_let_guard)]
+#![feature(let_chains)]
 #![feature(bigint_helper_methods)]
 
 use colored::Colorize;

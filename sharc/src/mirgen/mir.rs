@@ -82,8 +82,17 @@ pub enum Expr<'b> {
 		gener: &'b [&'b Type<'b>],
 		args:  &'b [(Var<'b>, &'b Type<'b>)],
 	},
+	Instr {
+		kind: InstrKind,
+		args: &'b [(Var<'b>, &'b Type<'b>)],
+	},
 	StrLit(&'b str),
 	Imm(IBig<'b>, &'b Type<'b>),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum InstrKind {
+	Add, Sub, Mul, Div, Mod,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -104,6 +113,10 @@ pub enum Type<'b> {
 	Mut(&'b Type<'b>),
 }
 
+fn join_tostring(iter: impl IntoIterator<Item = impl ToString>, s: &str) -> String {
+	iter.into_iter().map(|e| ToString::to_string(&e)).collect::<std::vec::Vec<_>>().join(s)
+}
+
 impl fmt::Display for Node<'_> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
@@ -112,13 +125,10 @@ impl fmt::Display for Node<'_> {
 			Self::Store { to, ty, from } => write!(f, "{to}: {ty} <- {from};"),
 			Self::Ret(v, ty) => write!(f, "{} {v}: {ty};", "return".yellow().dimmed()),
 			Self::DefFn { id, args, ret, def_proc, body } => {
-				write!(f, "{} fn%{id}(", "def".yellow().dimmed())?;
-				for (i, (arg_id, arg_ty)) in args.iter().enumerate() {
-					if i != 0 { write!(f, ", ")?; }
-					write!(f, "%{arg_id}: {arg_ty}")?;
-				}
-
-				writeln!(f, ") -> {ret} {{")?;
+				write!(f, "{} fn%{id}({}) -> {ret} {{", 
+					"def".yellow().dimmed(),
+					join_tostring(args.iter().map(|(i, t)| format!("%{i}: {t}")), ", "),
+				)?;
 
 				for (proc_id, proc_body) in *def_proc {
 					writeln!(f, "  {proc_id}: {{")?;
@@ -142,45 +152,28 @@ impl fmt::Display for Node<'_> {
 impl fmt::Display for Expr<'_> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
-			Self::DefCFn { sym, args, ret } => {
-				write!(f, "{} {sym:?} fn(", "cdef".yellow().dimmed())?;
-				for (i, arg) in args.iter().enumerate() {
-					if i != 0 { write!(f, ", ")?; }
-					write!(f, "{arg}")?;
-				}
-				write!(f, ") -> {ret}")
-			},
+			Self::DefCFn { sym, args, ret } => 
+				write!(f, "{} {sym:?} fn({}) -> {ret}", 
+					"cdef".yellow().dimmed(),
+					join_tostring(args.iter().map(|a| format!("{a}")), ", ")
+				),
 			Self::FuncCapture { fid, args } => write!(f, "fn#{fid}{{{}}}", 
-				args.iter().map(|a| format!("%{a}")).collect::<Vec<_>>().join(", ")),
+				join_tostring(args.iter().map(|a| format!("%{a}")), ", ")),
 			Self::StrLit(s) => write!(f, "{}", format!("{s:?}").green()),
-			Self::Call { id, ty, args } => {
-				write!(f, "%{id}: {ty}(")?;
-				for (i, (arg, ty)) in args.iter().enumerate() {
-					if i != 0 { write!(f, ", ")?; }
-					write!(f, "{arg}: {ty}")?;
-				}
-				write!(f, ")")
-			},
+			Self::Call { id, ty, args } => write!(f, "%{id}: {ty}({})", 
+				join_tostring(args.iter().map(|(a, t)| format!("{a}: {t}")), ", ")),
 			Self::ImplCall { path, ident, gener, args } => {
 				if !path.is_empty() {
-					for p in *path { write!(f, "{p}::")?; }
+					path.iter().try_for_each(|p| write!(f, "{}::", p))?;
 				}
 				write!(f, "{}", ident.blue())?;
 				if !gener.is_empty() {
-					write!(f, "<")?;
-					for (i, g) in gener.iter().enumerate() {
-						if i != 0 { write!(f, ", ")?; }
-						write!(f, "{g}")?;
-					}
-					write!(f, ">")?;
+					write!(f, "<{}>", join_tostring(*gener, ", "))?;
 				}
-				write!(f, "(")?;
-				for (i, (arg, ty)) in args.iter().enumerate() {
-					if i != 0 { write!(f, ", ")?; }
-					write!(f, "{arg}: {ty}")?;
-				}
-				write!(f, ")")
+				write!(f, "({})", join_tostring(args.iter().map(|(a, t)| format!("{a}: {t}")), ", "))
 			},
+			Self::Instr { kind, args } => write!(f, "{} {}", kind, 
+				join_tostring(args.iter().map(|(a, t)| format!("{a}: {t}")), ", ")),
 			Self::Imm(v, t) => write!(f, "{}: {t}", v.to_string().cyan()),
 		}
 	}
@@ -201,8 +194,7 @@ impl fmt::Display for Type<'_> {
 			Self::Mut(ty) => format!("mut {ty}"),
 			Self::Arr(ty, Some(size)) => format!("[{ty}; {size}]"),
 			Self::Arr(ty, None) => format!("[{ty}]"),
-			Self::Fn(args, ret) => format!("fn({}) -> {ret}", 
-				args.iter().map(|a| format!("{a}")).collect::<Vec<_>>().join(", ")),
+			Self::Fn(args, ret) => format!("fn({}) -> {ret}", join_tostring(*args, ", ")),
 		}.purple())
 	}
 }
@@ -220,4 +212,10 @@ impl fmt::Display for Var<'_> {
 impl fmt::Display for ValId {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result 
 	{ write!(f, "{}", self.0) }
+}
+
+impl fmt::Display for InstrKind {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		format!("{:?}", self).to_lowercase().yellow().dimmed().fmt(f)
+	}
 }

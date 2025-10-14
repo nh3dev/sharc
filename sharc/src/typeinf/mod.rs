@@ -1,6 +1,8 @@
+// FIXME: at some point consider changing RefCell to Cell
+
 use std::cell::RefCell;
 
-use crate::parser::ast::{self, Node};
+use crate::parser::ast::{self, Node, LambdaArg};
 use crate::report::{Report, ReportKind, Result, Reportable};
 use crate::span::{Span, Sp, Spannable};
 
@@ -9,11 +11,15 @@ use bump::{Bump, CollectWith};
 pub mod hir;
 use hir::{TypeInf as _, Ty, Type, TypeKind, Node as TyNode, LambdaArg as TyLambdaArg};
 
+mod statics;
+
 pub struct TypeInf<'src, 'bo, 'b, 'r> {
 	reporter: &'r mut crate::Reporter,
 	bump:     Bump,
 	bump_lt:  std::marker::PhantomData<&'b Bump>,
 	bumpo_lt: std::marker::PhantomData<&'bo Bump>,
+
+	types:    statics::StaticTypes<'src, 'b>,
 
 	scope_stack: Vec<Scope<'src, 'b>>,
 	gener_id:    usize,
@@ -26,7 +32,7 @@ struct Scope<'src, 'b> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ScopeKind {
-	Root, Func, Loop, Block
+	Root, Func, Loop, Block, Let
 }
 
 impl<'src, 'b> Scope<'src, 'b> {
@@ -77,35 +83,253 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 		(ast, ast_bump): (Node<'src, 'bo>, Bump),
 		reporter: &'r mut crate::Reporter
 	) -> (Ty<'src, 'b, TyNode<'src, 'b>>, Bump) {
+		let bump = Bump::new();
 		let mut inf = Self { 
 			reporter, 
-			bump: Bump::new(),
 			bump_lt:  std::marker::PhantomData,
 			bumpo_lt: std::marker::PhantomData,
+			types:    statics::StaticTypes::new(&bump),
 			scope_stack: vec![Scope::new(ScopeKind::Root)],
 			gener_id: 0,
+			bump,
 		};
 
-		let Some(Ty { elem, ty }) = inf.infer_node(&ast.span(Span::new(0))) else {
-			let ty = inf.bump.alloc(RefCell::new(Type::new(TypeKind::None)));
-			return (TyNode::None.typed(ty), ast_bump);
+		let Some(ast) = inf.infer_node(&ast.span(Span::new(0))) else {
+			return (TyNode::None.typed(inf.types.none), ast_bump);
 		};
+
+		// println!("\n{ast}");
+
+		inf.resolve_node_constraints(&ast);
+
+		let Ty { elem, ty } = ast;
 
 		std::mem::drop(ast_bump);
 		(elem.elem.typed(ty), inf.bump)
 	}
 
+	// type const eval
+	fn eval_node_as_type(&mut self, node: &Ty<'src, 'b, Sp<TyNode<'src, 'b>>>)
+		-> Option<&'b RefCell<Type<'src, 'b>>> {
+		if node.ty.borrow().kind != TypeKind::Type {
+			self.log(ReportKind::TypeError
+				.title(format!("expected `{}`, found `{}`", TypeKind::Type, node.ty.borrow().kind))
+				.span(node.elem.span));
+			return None;
+		}
+
+		match &node.elem.elem {
+			TyNode::Primitive(ty) => Some(ty),
+			_ => todo!(),
+		}
+	}
+
+	// pass 1
 	fn infer_node(&mut self, node: &Sp<Node<'src, 'bo>>) 
 		-> Option<Ty<'src, 'b, Sp<TyNode<'src, 'b>>>> {
 
-		Some(match node.elem {
+		Some(match &node.elem {
+			Node::Primitive(p) => {
+				let kind = match p {
+					ast::Primitive::Usize   => TypeKind::Usize,
+					ast::Primitive::Isize   => TypeKind::Isize,
+					ast::Primitive::U(size) => TypeKind::U(*size),
+					ast::Primitive::I(size) => TypeKind::I(*size),
+					ast::Primitive::None    => TypeKind::None,
+					ast::Primitive::Fn(args, ret) => {
+						let bump = self.bump();
+						let args = args.iter()
+							.filter_map(|a| self.infer_node(a).and_then(|n| self.eval_node_as_type(&n)))
+							.collect_with(bump.alloc_vec(args.len()));
+
+						let ret = match ret {
+							Some(r) => self.infer_node(r).and_then(|n| self.eval_node_as_type(&n))?,
+							None    => self.types.none,
+						};
+
+						TypeKind::Fn(args.into_slice(), ret)
+					},
+					_ => todo!("{:?}", p),
+				};
+
+				let ty = self.bump.alloc(RefCell::new(Type::new(kind)));
+				TyNode::Primitive(ty).span(node.span).typed(self.types.type_)
+			},
+			Node::Ident(sym) => {
+				let Some(ty) = self.scope_stack.iter().rev().find_map(|s| s.find_sym(sym)) else {
+					self.log(ReportKind::UndefinedIdentifier
+						.title(format!("`{sym}`"))
+						.span(node.span));
+					return None;
+				};
+
+				TyNode::Ident(sym).span(node.span).typed(ty)
+			},
+			Node::Let { ident, gener, ty, expr, stat } => {
+				// TODO: generics
+				// let mut gener_ty = self.bump.alloc_vec(gener.len());
+				// self.push_scope(ScopeKind::Let);
+				// for g in gener {
+				// }
+
+				let expr = self.infer_node(expr)?;
+				let ty_expr = match ty {
+					Some(t) => Some(self.infer_node(t).and_then(|t| self.eval_node_as_type(&t))?),
+					None    => None,
+				};
+
+				match &mut expr.ty.borrow_mut().kind {
+					TypeKind::Generic(_, cons) if let Some(ty) = ty_expr 
+						=> cons.push(ty.span(expr.elem.span)),
+					t if let Some(ty) = ty_expr && *t != ty.borrow().kind => {
+						self.log(ReportKind::TypeError
+							.title(format!("expected `{}`, found `{}`", ty.borrow().kind, t))
+							.span(expr.elem.span));
+					},
+					_ => {},
+				}
+
+				self.scope().push_sym(ident.elem, expr.ty);
+
+				TyNode::Let { 
+					ident: *ident,
+					gener: &[], 
+					expr: self.bump.alloc(expr),
+					stat: false, // prob a better way to do statics language side.. StaticCell?
+				}.span(node.span).typed(self.types.none)
+			},
+			Node::As(lhs, rhs) => {
+				let lhs = self.infer_node(lhs)?;
+				let rhs = self.infer_node(rhs)?;
+
+				let ty = self.eval_node_as_type(&rhs)?;
+
+				TyNode::ImplCall { 
+					path:  statics::CORE_PATH,
+					ident: "As".span(node.span),
+					gener: self.bump.alloc_array([ty]),
+					vals:  self.bump.alloc_array([lhs]),
+				}.span(node.span).typed(ty)
+			},
 			Node::None => {
 				let ty = self.bump.alloc(RefCell::new(Type::new(TypeKind::None)));
 				TyNode::None.span(node.span).typed(ty)
 			},
+			Node::Add(lhs, rhs) | Node::Sub(lhs, rhs) | Node::Mul(lhs, rhs) 
+				| Node::Div(lhs, rhs) | Node::Mod(lhs, rhs) => {
+
+				let lhs = self.infer_node(lhs)?;
+				let rhs = self.infer_node(rhs)?;
+
+				let id   = self.newid();
+				let cons = vec![lhs.ty.span(lhs.elem.span), rhs.ty.span(rhs.elem.span)];
+
+				let ty = self.bump.alloc(RefCell::new(Type::new(TypeKind::Generic(id, cons))));
+
+				(match node.elem {
+					Node::Add(_, _) => TyNode::Add,
+					Node::Sub(_, _) => TyNode::Sub,
+					Node::Mul(_, _) => TyNode::Mul,
+					Node::Div(_, _) => TyNode::Div,
+					Node::Mod(_, _) => TyNode::Mod,
+					_ => unreachable!(),
+				})(self.bump.alloc(lhs), self.bump.alloc(rhs))
+					.span(node.span).typed(ty)
+			},
+			Node::Lambda { ext: Some(_), export: Some(_), .. } => {
+				self.log(ReportKind::InvalidFunctionType
+					.title("extern functions cannot be exported")
+					.span(node.span));
+				return None;
+			},
+			Node::Lambda { body: Some(_), ext: Some(_), .. } => {
+				self.log(ReportKind::InvalidFunctionType
+					.title("extern functions cannot have a body")
+					.span(node.span));
+				return None;
+			},
+			Node::Lambda { args, ret, ext: Some(ext), .. } => {
+				let mut args_out = self.bump.alloc_vec(args.len());
+				let mut args_ty  = self.bump.alloc_vec(args.len());
+
+				for LambdaArg { ident, ty, default } in args.iter() {
+					let ty = match ty {
+						Some(t) => self.infer_node(t).and_then(|n| self.eval_node_as_type(&n))?,
+						None    => {
+							self.log(ReportKind::TypeAnnotationRequired
+								.title("extern functions must have all arguments annotated")
+								.span(ident.span));
+							continue;
+						},
+					};
+
+					args_ty.push(ty);
+
+					args_out.push(TyLambdaArg {
+						ident: *ident,
+						ty:    Some(ty),
+						default: match default {
+							Some(d) => Some(self.infer_node(d)?),
+							None    => None,
+						},
+					});
+				}
+
+				let ret = match ret {
+					Some(r) => self.infer_node(r).and_then(|n| self.eval_node_as_type(&n))?,
+					None    => self.types.none,
+				};
+
+				let ty = self.bump.alloc(RefCell::new(Type::new(TypeKind::Fn(args_ty.into_slice(), ret))));
+
+				TyNode::Lambda { 
+					ret,
+					args:   args_out.into_slice(), 
+					body:   None, 
+					export: None, 
+					ext:    Some(self.bump.alloc_str(ext.elem).span(ext.span)), 
+				}.span(node.span).typed(ty)
+			},
+			Node::Lambda { args, ret, export, .. } => {
+				todo!();
+			},
+			Node::FuncCall { lhs, args } => {
+				let lhs = self.infer_node(lhs)?;
+
+				let bump = self.bump();
+				let args_out = args.iter()
+					.filter_map(|a| self.infer_node(a))
+					.collect_with(bump.alloc_vec(args.len()));
+
+				let ty = match &mut lhs.ty.borrow_mut().kind {
+					TypeKind::Fn(_, ret) => ret, // FIXME: check args?
+					TypeKind::Generic(_, cons) => {
+						let id = self.newid();
+						let ret = self.bump.alloc(RefCell::new(Type::new(TypeKind::Generic(id, Vec::new()))));
+
+						let args = args_out.iter().map(|a| a.ty)
+							.collect_with(self.bump.alloc_vec(args_out.len()));
+
+						cons.push(self.bump.alloc(RefCell::new(Type::new(TypeKind::Fn(args.into_slice(), ret))))
+							.span(lhs.elem.span));
+
+						ret
+					},
+					_ => {
+						self.log(ReportKind::TypeError
+							.title(format!("expected fn, found `{}`", lhs.ty.borrow().kind))
+							.span(lhs.elem.span));
+						return None;
+					},
+				};
+
+				TyNode::FuncCall {
+					lhs:  self.bump.alloc(lhs),
+					args: args_out.into_slice(),
+				}.span(node.span).typed(ty)
+			},
 			Node::Block(exprs) => {
 				let bump = self.bump();
-
 				let exprs = exprs.iter()
 					.filter_map(|e| self.infer_node(e))
 					.collect_with(bump.alloc_vec(exprs.len()));
@@ -119,8 +343,7 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 			},
 			Node::IntLit(i) => {
 				let id   = self.newid();
-				let mut cons = self.bump.alloc_vec(hir::CONSTRAINT_VEC_SIZE);
-				cons.push(TypeKind::U(i.min_bit_size())).unwrap();
+				let cons = vec![self.bump.alloc(RefCell::new(Type::new(TypeKind::Usize))).span(node.span)];
 
 				TyNode::IntLit(i.copy(&self.bump)).span(node.span)
 					.typed(self.bump.alloc(RefCell::new(Type::new(TypeKind::Generic(id, cons)))))
@@ -128,15 +351,105 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 			_ => todo!("{:?}", node.elem),
 		})
 	}
+
+	// pass 2
+	fn resolve_node_constraints(&mut self, node: &Ty<'src, 'b, Sp<TyNode<'src, 'b>>>) {
+		match &node.elem.elem {
+			TyNode::Block(exprs) => {
+				exprs.iter().for_each(|e| self.resolve_node_constraints(e))
+			},
+			TyNode::ImplCall { vals, .. } => {
+				// TODO: trait impl resolution
+				vals.iter().for_each(|e| self.resolve_node_constraints(e))
+			},
+			TyNode::Add(lhs, rhs) | TyNode::Sub(lhs, rhs) | TyNode::Mul(lhs, rhs) 
+				| TyNode::Div(lhs, rhs) | TyNode::Mod(lhs, rhs) => {
+				self.resolve_node_constraints(lhs);
+				self.resolve_node_constraints(rhs);
+			},
+			TyNode::Let { expr, .. } => {
+				self.resolve_node_constraints(expr);
+			},
+			TyNode::FuncCall { lhs, args } => {
+				self.resolve_node_constraints(lhs);
+				args.iter().for_each(|a| self.resolve_node_constraints(a));
+			},
+			_ => {},
+		}
+
+		self.resolve_type_constraints(&node.ty, None);
+	}
+
+	fn resolve_type_constraints(&mut self, ty: &RefCell<Type<'src, 'b>>, cons: Option<&RefCell<Type<'src, 'b>>>) {
+		let mut ty = match ty.try_borrow_mut() {
+			Ok(ty) if matches!(ty.kind, TypeKind::Generic(_, _)) => ty,
+			Ok(_) => return,
+			Err(e) => {
+				self.log(ReportKind::InternalError
+					.title(format!("constraint resolution: {e}")));
+				return;
+			},
+		};
+
+		if let Some(cons) = cons {
+			self.resolve_type_constraints(cons, None);
+			*ty = cons.borrow().clone();
+			return;
+		}
+
+		let TypeKind::Generic(_, cons) = &ty.kind else { unreachable!() };
+
+		match cons.as_slice() {
+			[] => {}, //FIXME: maybe warn or err here?
+			[n] => {
+				self.resolve_type_constraints(n, None);
+				*ty = (*n.elem).clone().into_inner()
+			},
+			_ => {
+				// FIXME: wtf is this logic
+				let mut cons_ty = None;
+
+				for c in cons {
+					self.resolve_type_constraints(c, cons_ty);
+
+					match cons_ty {
+						Some(t) if !Self::constraint_compatible(t, c) => {
+							self.log(ReportKind::TypeError
+								.title(format!("cannot unify `{}` and `{}`", t.borrow().kind, c.borrow().kind)));
+							continue;
+						},
+						None => cons_ty = Some(c),
+						_ => {},
+					}
+				}
+				
+				if let Some(t) = cons_ty {
+					*ty = (*t).clone().into_inner()
+				}
+			}, 
+		}
+	}
+
+	#[inline]
+	fn constraint_compatible(
+		a: &RefCell<Type<'src, 'b>>, 
+		b: &RefCell<Type<'src, 'b>>
+	) -> bool {
+		if a == b { return true; }
+
+		match (&a.borrow().kind, &b.borrow().kind) {
+			(TypeKind::Usize, TypeKind::U(_))
+				| (TypeKind::Isize, TypeKind::I(_))
+				| (TypeKind::U(_), TypeKind::U(_) | TypeKind::Usize)
+				| (TypeKind::I(_), TypeKind::I(_) | TypeKind::Isize) => true,
+
+			_ => false,
+		}
+	}
 }
 
+
 	// pub fn resolve_type(&mut self, node: &Ty<'src, 'b, Sp<TyNode<'src, 'b>>>) -> Result<&'b Type<'src, 'b>> {
-	// 	if !matches!(node.ty.kind, TypeKind::Type) {
-	// 		return ReportKind::TypeError
-	// 			.title(format!("expected `{}`, found `{}`", TypeKind::Type, node.ty.kind))
-	// 			.span(node.elem.span)
-	// 			.as_err();
-	// 	}
 	//
 	// 	Ok(match &node.elem.elem {
 	// 		TyNode::Primitive(ty) => ty,
@@ -271,72 +584,6 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 	//
 	// pub fn infer_node(&mut self, node: &Sp<Node<'src, 'bo>>) -> Result<Ty<'src, 'b, Sp<TyNode<'src, 'b>>>> {
 	// 	Ok(match &node.elem {
-	// 		Node::Primitive(t) => {
-	// 			let ty = match t {
-	// 				ast::Primitive::U(size) => TypeKind::U(*size),
-	// 				ast::Primitive::I(size) => TypeKind::I(*size),
-	// 				ast::Primitive::B(size) => TypeKind::B(*size),
-	// 				ast::Primitive::None    => TypeKind::None,
-	// 				ast::Primitive::Fn(args, ret) => {
-	// 					let args = its_fine!(self.bump).try_alloc_from_iter(args.iter()
-	// 						.map(|a| self.infer_node(a).and_then(|n| self.resolve_type(&n))))?;
-	//
-	// 					let ret = ret.map(|r| self.infer_node(r)
-	// 						.and_then(|n| self.resolve_type(&n)))
-	// 						.transpose()?;
-	//
-	// 					TypeKind::Fn(args, ret)
-	// 				},
-	// 				_ => todo!(),
-	// 			};
-	// 			TyNode::Primitive(self.bump.alloc(Type::new(ty)))
-	// 				.span(node.span).typed(&TY_TYPE)
-	// 		},
-	// 		Node::Ident { lit, gener } => {
-	// 			let Some((ty, _)) = self.get_scope_val(lit) else {
-	// 				return ReportKind::UndefinedIdentifier
-	// 					.title(format!("`{}`", *lit))
-	// 					.span(node.span)
-	// 					.as_err();
-	// 			};
-	//
-	// 			let gener = its_fine!(self.bump).try_alloc_from_iter(gener.iter()
-	// 				.map(|g| self.infer_node(g).and_then(|n| self.resolve_type(&n))))?;
-	//
-	// 			TyNode::Ident { lit: *lit, gener }.span(node.span).typed(ty)
-	// 		},
-	//
-	// 		Node::Let { ident, ty, gener, expr, stat } => {
-	// 			let gener = its_fine!(self.bump).try_alloc_from_iter(gener.iter()
-	// 				.map(|g| self.infer_node(g).and_then(|n| self.resolve_type(&n))))?;
-	//
-	// 			let expr = self.infer_node(expr)?;
-	//
-	// 			let ty = match ty {
-	// 				Some(ty) => {
-	// 					let ty = self.infer_node(ty)?;
-	// 					self.resolve_type(&ty)?
-	// 				},
-	// 				None     => expr.ty,
-	// 			};
-	//
-	// 			self.scope().push_sym(ident, ty);
-	//
-	// 			if expr.ty.kind != ty.kind && !Self::try_coerce_type(expr.ty, ty) {
-	// 				return ReportKind::TypeError
-	// 					.title(format!("expected `{}`, found `{}`", ty.kind, expr.ty.kind))
-	// 					.span(expr.elem.span)
-	// 					.as_err();
-	// 			}
-	//
-	// 			TyNode::Let { 
-	// 				gener,
-	// 				ident: *ident, 
-	// 				ty:    Some(ty), 
-	// 				expr:  self.bump.alloc(expr),
-	// 				stat:  false, // TODO do something here
-	// 			}.span(node.span).typed(&TY_NONE)
-	// 		},
 	// 		Node::Store(lhs, rhs) => {
 	// 			let lhs = self.infer_node(lhs)?;
 	// 			let rhs = self.infer_node(rhs)?;
@@ -353,25 +600,6 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 	// 		},
 	//
 	//
-	// 		Node::Add(lhs, rhs) => {
-	// 			let lhs = self.infer_node(lhs)?;
-	// 			let rhs = self.infer_node(rhs)?;
-	//
-	// 			let trait_ = self.resolve_trait(
-	// 				&lhs.ty, 
-	// 				&self.bump.alloc_sized_slice([rhs.ty]), 
-	// 				&CORE, &"Add".span(node.span))?
-	// 				.ok_or_else(|| ReportKind::NoSuchTrait
-	// 					.title(format!("`core::Add<{}>` not implemented for {}", rhs.ty.kind, lhs.ty.kind))
-	// 					.span(node.span))?;
-	//
-	// 			TyNode::ImplCall {
-	// 				path:  CORE,
-	// 				ident: "Add".span(node.span),
-	// 				gener: self.bump.alloc_sized_slice([lhs.ty, rhs.ty]), 
-	// 				vals:  self.bump.alloc_sized_slice([lhs, rhs]),
-	// 			}.span(node.span).typed(trait_.last().unwrap())
-	// 		},
 	// 		Node::Amp(expr) => {
 	// 			let expr = self.infer_node(expr)?;
 	//
@@ -419,25 +647,6 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 	//
 	// 			TyNode::FuncCall { lhs: self.bump.alloc(lhs), args }
 	// 				.span(node.span).typed(ex_ret.unwrap_or(&TY_NONE))
-	// 		},
-	// 		Node::As(lhs, rhs) => {
-	// 			let lhs = self.infer_node(lhs)?;
-	// 			let rhs = self.infer_node(rhs)?; // lossy
-	// 			let ty  = self.resolve_type(&rhs)?;
-	//
-	// 			TyNode::ImplCall { 
-	// 				path:  CORE,
-	// 				ident: "As".span(node.span),
-	// 				gener: self.bump.alloc_sized_slice([ty]),
-	// 				vals:  self.bump.alloc_sized_slice([lhs]),
-	// 			}.span(node.span).typed(ty)
-	// 		},
-	//
-	//
-	//
-	// 		Node::IntLit(i) => {
-	// 			// let ty = Type::new(TypeKind::U(i.min_bit_size()));
-	// 			TyNode::IntLit(i.copy(&self.bump)).span(node.span).typed(&TY_USIZE)
 	// 		},
 	// 		Node::StrLit(s) => {
 	// 			let ty = Type::new(TypeKind::Array(&TY_U8, Some(s.len() as u64)));

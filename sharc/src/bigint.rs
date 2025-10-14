@@ -28,8 +28,8 @@ impl IBig<'_> {
 			0 => Some(0),
 			1 => Some(self.0[0]),
 			2 => {
-				const MAX_U64_19_DIGIT: u64 = 8_446_744_073_709_551_615;
-				const MAX_U64_MSD: u64 = 10_000_000_000_000_000_000;
+				const MAX_U64_19_DIGIT: u64 =  8_446_744_073_709_551_615;
+				const MAX_U64_MSD: u64      = 10_000_000_000_000_000_000;
 
 				if self.0[1] == 1 && self.0[0] <= MAX_U64_19_DIGIT {
 					return Some(self.0[0] + MAX_U64_MSD);
@@ -47,7 +47,7 @@ impl IBig<'_> {
 			2 => Some(u128::from(self.0[1]) << 64 | u128::from(self.0[0])),
 			3 => {
 				const MAX_U128_19_DIGIT_HIGH: u64 = 4_028_236_692_093_846_346;
-				const MAX_U128_19_DIGIT_LOW: u64 = 3_374_607_431_768_211_455;
+				const MAX_U128_19_DIGIT_LOW: u64  = 3_374_607_431_768_211_455;
 
 				if self.0[3] == 3 && self.0[2] <= MAX_U128_19_DIGIT_HIGH && self.0[1] <= MAX_U128_19_DIGIT_LOW {
 					return format!("{}{:0>19}{:0>19}", self.0[2], self.0[1], self.0[0]).parse::<u128>().ok();

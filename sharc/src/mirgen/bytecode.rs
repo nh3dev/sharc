@@ -1,7 +1,7 @@
 use std::ops::Not;
 use bump::Bump;
 
-use super::mir::{Expr, Mir, Node, Type, Var, ValId};
+use super::mir::{Expr, Mir, Node, Type, Var, ValId, InstrKind};
 use crate::IBig;
 
 const MAGIC: &[u8] = b"SHARDBC";
@@ -120,6 +120,11 @@ impl Serialize for Expr<'_> {
 				args.serialize(b)?;
 				ret.serialize(b)
 			},
+			Expr::Instr { kind, args } => {
+				6_u8.serialize(b)?;
+				kind.serialize(b)?;
+				args.serialize(b)
+			},
 		}
 	}
 }
@@ -158,6 +163,18 @@ impl Serialize for Node<'_> {
 				body.serialize(b)
 			},
 		}
+	}
+}
+
+impl Serialize for InstrKind {
+	fn serialize(&self, b: &mut impl Write) -> io::Result<()> {
+		match self {
+			Self::Add => 0_u8,
+			Self::Sub => 1_u8,
+			Self::Mul => 2_u8,
+			Self::Div => 3_u8,
+			Self::Mod => 4_u8,
+		}.serialize(b)
 	}
 }
 
@@ -295,6 +312,10 @@ impl Deserialize for Expr<'_> {
 				args: Deserialize::deserialize(bump, b)?,
 				ret:  Deserialize::deserialize(bump, b)?,
 			},
+			6 => Expr::Instr { 
+				kind: Deserialize::deserialize(bump, b)?,
+				args: Deserialize::deserialize(bump, b)?,
+			},
 			_ => return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Tag")),
 		})
 		
@@ -331,6 +352,19 @@ impl Deserialize for Type<'_> {
 			11 => Type::Arr(
 				Deserialize::deserialize(bump, b)?,
 				Deserialize::deserialize(bump, b)?),
+			_ => return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Tag")),
+		})
+	}
+}
+
+impl Deserialize for InstrKind {
+	fn deserialize(bump: &Bump, b: &mut impl Read) -> io::Result<Self> {
+		Ok(match u8::deserialize(bump, b)? {
+			0 => Self::Add,
+			1 => Self::Sub,
+			2 => Self::Mul,
+			3 => Self::Div,
+			4 => Self::Mod,
 			_ => return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Tag")),
 		})
 	}

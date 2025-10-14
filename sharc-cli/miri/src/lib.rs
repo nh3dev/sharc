@@ -2,15 +2,17 @@ use std::sync::LazyLock;
 use std::ffi::c_void;
 
 use libffi::middle::{Cif, CodePtr};
-use sharc::mir::{Expr, Node, Type as MirType, Var};
+use sharc::mir::{Expr, InstrKind, Node, Type as MirType, Var};
 use sharc::report::Reportable;
 
 mod val;
 mod sheep;
 mod error;
 mod sys;
+mod ffi;
 
-use val::{RawVal, Type, Val, Value};
+use val::{Type, Val, Value};
+use ffi::RawVal;
 use sheep::Sheep;
 use error::{MiriError, Result};
 
@@ -39,7 +41,7 @@ impl<'b> Runtime {
 			Var::Imm(i)    => {
 				let int = Val::from_ibig(i, &ty).ok_or_else(||
 					Box::new(MiriError::IntSizeLimitExceeded
-						.title("miri does not support ints larger than u64 natively")))?;
+						.title(format!("cannot represent {i} as {ty}"))))?;
 
 				Sheep::Owned(Value::new(int, ty))
 			},
@@ -112,16 +114,32 @@ impl<'b> Runtime {
 	fn eval_mir_expr(&mut self, expr: &Expr<'b>) -> Result<Sheep<Value>> {
 		Ok(match expr {
 			Expr::ImplCall { path: ["core"], ident, gener, args } => match *ident {
-				"Add" => {
-					let lhs = self.resolve_var(&args[0].0, args[0].1)?;
-					let rhs = self.resolve_var(&args[1].0, args[1].1)?;
-
-					Sheep::Owned(Value::add(&lhs, &rhs, gener.get(2).map(|t| Type::from_mir(t))))
-				},
 				"As" => {
 					self.resolve_var(&args[0].0, gener[0])?
 				},
 				_ => Sheep::Owned(Value::none()),
+			},
+			Expr::Instr { kind, args } => match kind {
+				InstrKind::Add | InstrKind::Sub | InstrKind::Mul | InstrKind::Div | InstrKind::Mod => {
+					let [(lhs_var, lhs_ty), (rhs_var, rhs_ty)] = args else {
+						return MiriError::InvalidArity
+							.title(format!("{kind:?} instruction expected 2, got {}", args.len()))
+							.as_err();
+					};
+
+					let lhs = self.resolve_var(lhs_var, lhs_ty)?;
+					let rhs = self.resolve_var(rhs_var, rhs_ty)?;
+
+					Sheep::Owned(match kind {
+						InstrKind::Add => Value::add(&lhs, &rhs, Some(lhs.ty.clone())),
+						InstrKind::Sub => Value::sub(&lhs, &rhs, Some(lhs.ty.clone())),
+						InstrKind::Mul => Value::mul(&lhs, &rhs, Some(lhs.ty.clone())),
+						InstrKind::Div => Value::div(&lhs, &rhs, Some(lhs.ty.clone()))?,
+						InstrKind::Mod => Value::rem(&lhs, &rhs, Some(lhs.ty.clone()))?,
+						_ => unreachable!(),
+					})
+				},
+				_ => todo!(),
 			},
 			Expr::Imm(i, ty) => {
 				let ty = Type::from_mir(ty);

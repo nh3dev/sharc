@@ -97,6 +97,7 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 		let ty = self.process_type(node.ty);
 
 		let var = match &node.elem.elem {
+			hir::Node::None => Var::None,
 			hir::Node::ImplCall { path, ident, gener, vals } => {
 				let gener = self.bump.alloc_from_iter(gener.iter().map(|g| self.process_type(g)));
 
@@ -118,7 +119,34 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 				Var::Local(id)
 			},
 			hir::Node::IntLit(v) => Var::Imm(v.copy(&self.bump)),
-			hir::Node::Let { ident, ty, gener, expr, stat } => {
+
+			hir::Node::Add(lhs, rhs) | hir::Node::Sub(lhs, rhs) | hir::Node::Mul(lhs, rhs) |
+				hir::Node::Div(lhs, rhs) | hir::Node::Mod(lhs, rhs) => {
+				let (lvar, lty, lnodes) = self.process_node(false, lhs)?;
+				let (rvar, rty, rnodes) = self.process_node(false, rhs)?;
+
+				nodes.extend(lnodes);
+				nodes.extend(rnodes);
+
+				let id = self.scope().id();
+
+				let kind = match node.elem.elem {
+					hir::Node::Add(_, _) => mir::InstrKind::Add,
+					hir::Node::Sub(_, _) => mir::InstrKind::Sub,
+					hir::Node::Mul(_, _) => mir::InstrKind::Mul,
+					hir::Node::Div(_, _) => mir::InstrKind::Div,
+					hir::Node::Mod(_, _) => mir::InstrKind::Mod,
+					_ => unreachable!(),
+				};
+
+				nodes.push(Node::Assign { id, ty: lty, expr: Expr::Instr { 
+					kind, args: self.bump.alloc_array([(lvar, lty), (rvar, rty)]),
+				}});
+
+				Var::Local(id)
+			},
+
+			hir::Node::Let { ident, gener, expr, stat } => {
 				if !gener.is_empty() {
 					return ReportKind::Unimplemented
 						.title("generics on let exprs are not supported yet")
@@ -127,10 +155,7 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 						.as_err();
 				}
 
-				let Some(ty) = ty else { 
-					// TODO: hir should enforce this for now, after thats fixed fix this too
-					todo!() 
-				};
+				let ty = expr.ty;
 
 				// TODO: propagate generics to node parse step
 				let (var, _, mut n_nodes) = self.process_node(false, expr)?;
@@ -194,20 +219,12 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 
 				Var::None
 			},
-			hir::Node::Ident { lit, gener } => {
-				let (valid, _) = self.find_symbol(lit.elem).ok_or_else(|| 
+			hir::Node::Ident(sym) => {
+				let (valid, _) = self.find_symbol(sym).ok_or_else(|| 
 					ReportKind::UndefinedIdentifier
-						.title(format!("unknown symbol: {}", lit.elem.red()))
+						.title(format!("unknown symbol: {}", sym.red()))
 						.help("learn to spell :)")
-						.span(lit.span))?;
-
-				if !gener.is_empty() {
-					return ReportKind::Unimplemented
-						.title("generics on let exprs are not supported yet")
-						.note("nick do this holy shit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-						.span(node.elem.span)
-						.as_err();
-				}
+						.span(node.elem.span))?;
 
 				Var::Local(valid)
 			},
@@ -216,7 +233,7 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 				if has_default { todo!() }
 
 				let args = self.bump.alloc_from_iter(args.iter().map(|a| self.process_type(a.ty.unwrap())));
-				let ret = ret.map_or(&TY_NONE, |r| self.process_type(r));
+				let ret = self.process_type(ret);
 
 				let id = self.scope().id();
 
@@ -289,7 +306,7 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 			hir::TypeKind::Fn(a, r) => {
 				self.bump.alloc(Type::Fn(
 					self.bump.alloc_from_iter(a.iter().map(|a| self.process_type(a))),
-					r.map_or(&TY_NONE, |r| self.process_type(r))))
+					self.process_type(r)))
 			},
 			hir::TypeKind::Ref(t) => self.bump.alloc(Type::Ptr(self.process_type(t))),
 			hir::TypeKind::Array(t, s) => self.bump.alloc(Type::Arr(self.process_type(t), s)),

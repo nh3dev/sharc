@@ -1,9 +1,9 @@
 use std::ffi::c_void;
 use std::fmt::{self, Display};
+use std::num::Wrapping;
 
 use sharc::mir::{Var, Type as MirType};
 use sharc::report::Reportable;
-use libffi::middle::{Type as FfiType, Arg};
 use colored::Colorize;
 use sharc::IBig;
 
@@ -24,20 +24,82 @@ impl Value {
 		Self { val, ty }
 	}
 
+	fn op(
+		lhs: &Self, rhs: &Self, out: Option<Type>, 
+		op8:   fn(u8, u8) -> u8,
+		op16:  fn(u16, u16) -> u16,
+		op32:  fn(u32, u32) -> u32,
+		op64:  fn(u64, u64) -> u64,
+		op128: fn(u128, u128) -> u128,
+	) -> Self {
+		let (lhs_i, lhs_size) = lhs.val.as_num().unwrap_or_else(|| todo!());
+		let (rhs_i, rhs_size) = rhs.val.as_num().unwrap_or_else(|| todo!());
+
+		let size = lhs_size.max(rhs_size);
+
+		let val = match size {
+			8   => Val::Int8(op8(lhs_i as u8, rhs_i as u8)),
+			16  => Val::Int16(op16(lhs_i as u16, rhs_i as u16)),
+			32  => Val::Int32(op32(lhs_i as u32, rhs_i as u32)),
+			64  => Val::Int64(op64(lhs_i as u64, rhs_i as u64)),
+			128 => Val::Int128(op128(lhs_i, rhs_i)),
+			_   => unreachable!(),
+		};
+
+		Value::new(val, out.unwrap_or(lhs.ty.clone()))
+	}
+
 	pub fn add(lhs: &Self, rhs: &Self, out: Option<Type>) -> Self {
-		match (&lhs.val, &rhs.val) {
-			(Val::Int8(a), Val::Int8(b)) =>
-				Value::new(Val::Int8(a.overflowing_add(*b).0), out.unwrap_or(lhs.ty.clone())),
-			(Val::Int16(a), Val::Int16(b)) =>
-				Value::new(Val::Int16(a.overflowing_add(*b).0), out.unwrap_or(lhs.ty.clone())),
-			(Val::Int32(a), Val::Int32(b)) =>
-				Value::new(Val::Int32(a.overflowing_add(*b).0), out.unwrap_or(lhs.ty.clone())),
-			(Val::Int64(a), Val::Int64(b)) =>
-				Value::new(Val::Int64(a.overflowing_add(*b).0), out.unwrap_or(lhs.ty.clone())),
-			(Val::Int128(a), Val::Int128(b)) =>
-				Value::new(Val::Int128(a.overflowing_add(*b).0), out.unwrap_or(lhs.ty.clone())),
-			_ => todo!(),
+		Self::op(lhs, rhs, out,
+			u8::wrapping_add,
+			u16::wrapping_add,
+			u32::wrapping_add,
+			u64::wrapping_add,
+			u128::wrapping_add)
+	}
+
+	pub fn sub(lhs: &Self, rhs: &Self, out: Option<Type>) -> Self {
+		Self::op(lhs, rhs, out,
+			u8::wrapping_sub,
+			u16::wrapping_sub,
+			u32::wrapping_sub,
+			u64::wrapping_sub,
+			u128::wrapping_sub)
+	}
+
+	pub fn mul(lhs: &Self, rhs: &Self, out: Option<Type>) -> Self {
+		Self::op(lhs, rhs, out,
+			u8::wrapping_mul,
+			u16::wrapping_mul,
+			u32::wrapping_mul,
+			u64::wrapping_mul,
+			u128::wrapping_mul)
+	}
+
+	pub fn div(lhs: &Self, rhs: &Self, out: Option<Type>) -> Result<Self> {
+		if let Some((0, _)) = rhs.val.as_num() {
+			return MiriError::DivideByZero.untitled().as_err();
 		}
+
+		Ok(Self::op(lhs, rhs, out,
+			u8::wrapping_div,
+			u16::wrapping_div,
+			u32::wrapping_div,
+			u64::wrapping_div,
+			u128::wrapping_div))
+	}
+
+	pub fn rem(lhs: &Self, rhs: &Self, out: Option<Type>) -> Result<Self> {
+		if let Some((0, _)) = rhs.val.as_num() {
+			return MiriError::DivideByZero.untitled().as_err();
+		}
+
+		Ok(Self::op(lhs, rhs, out,
+			u8::wrapping_rem,
+			u16::wrapping_rem,
+			u32::wrapping_rem,
+			u64::wrapping_rem,
+			u128::wrapping_rem))
 	}
 }
 
@@ -69,32 +131,6 @@ impl Type {
 			_ => todo!("{:?}", ty),
 		}
 	}
-
-	pub fn to_libffi(&self) -> FfiType {
-		match self {
-			Self::Usize => FfiType::usize(),
-			Self::Isize => FfiType::isize(),
-			Self::U(n) => match n.next_power_of_two() {
-				1..=8 => FfiType::u8(),
-				16    => FfiType::u16(),
-				32    => FfiType::u32(),
-				64    => FfiType::u64(),
-				n     => FfiType::structure(std::iter::repeat_n(FfiType::u64(), (n / 64) as usize)),
-			}
-			Self::I(n) => match n.next_power_of_two() {
-				1..=8 => FfiType::i8(),
-				16    => FfiType::i16(),
-				32    => FfiType::i32(),
-				64    => FfiType::i64(),
-				n     => FfiType::structure(std::iter::repeat_n(FfiType::i64(), (n / 64) as usize)),
-			},
-			Self::None | Self::Never => FfiType::void(),
-			Self::Fn(_, _) | Self::Ptr(_) => FfiType::pointer(),
-			Self::Array(t, Some(s)) => FfiType::structure(std::iter::repeat_n(t.to_libffi(), *s as usize)),
-			Self::Array(_, None)    => panic!("cannot convert unsized array to libffi type"),
-		}
-	}
-
 }
 
 #[derive(Debug, Clone)]
@@ -112,77 +148,27 @@ pub enum Val {
 	Ret(usize),
 }
 
-// needed so we can have libffi func calls return
-pub union RawVal {
-	none: (),
-	int8: u8,
-	int16: u16,
-	int32: u32,
-	int64: u64,
-	int128: u128,
-	fat_ptr: (*mut c_void, usize),
-	ptr:  *mut c_void,
-	cfn:  libffi::middle::CodePtr,
-}
-
-impl RawVal {
-	pub fn into_val(self, ty: &Type) -> Result<Val> {
-		unsafe {
-			Ok(match ty {
-				Type::None  => Val::None,
-				Type::U(..8)  | Type::I(..8)   => Val::Int8(self.int8),
-				Type::U(..16) | Type::I(..16)  => Val::Int16(self.int16),
-				Type::U(..32) | Type::I(..32)  => Val::Int32(self.int32),
-				Type::U(..64) | Type::I(..64)  => Val::Int64(self.int64),
-				Type::U(..128)| Type::I(..128) => Val::Int128(self.int128),
-				Type::Usize   | Type::Isize    => match std::mem::size_of::<usize>() {
-					..16  => Val::Int16(self.int16),
-					32  => Val::Int32(self.int32),
-					64  => Val::Int64(self.int64),
-					128 => Val::Int128(self.int128),
-					_     => unreachable!(),
-				},
-				Type::U(_)    | Type::I(_)     => panic!("unsupported integer size for rawval"),
-
-				Type::Fn(args, ret) => Val::CFn(
-					libffi::middle::Cif::new(
-						args.iter().map(|t| t.to_libffi()),
-						ret.to_libffi()
-					),
-					self.cfn
-				),
-				Type::Ptr(_) => Val::Ptr(self.ptr),
-				Type::Never => 
-				return MiriError::InvalidInstruction
-					.title("cannot convert a rawval to a value of type never")
-					.as_err(),
-				Type::U(_) | Type::I(_) => panic!(),
-
-				// TODO: somehow impl sized arrays
-				Type::Array(_, _) => todo!(),
-			})
-		}
-	}
-}
-
 impl Val {
-	pub fn as_arg(&self) -> Arg {
-		match self {
-			Self::None      => Arg::new(&()),
-			Self::Int8(v)   => Arg::new(v),
-			Self::Int16(v)  => Arg::new(v),
-			Self::Int32(v)  => Arg::new(v),
-			Self::Int64(v)  => Arg::new(v),
-			Self::Int128(v) => Arg::new(v),
-			Self::CFn(_, p) => Arg::new(p),
-			Self::Ptr(s)    => Arg::new(s),
-			Self::FatPtr(p, m) => Arg::new(&(*p, *m)),
-			Self::Ret(_)    => panic!(),
-		}
+	pub fn as_num(&self) -> Option<(u128, u32)> {
+		Some(match self {
+			Val::Int8(v)   => (*v as u128, 8),
+			Val::Int16(v)  => (*v as u128, 16),
+			Val::Int32(v)  => (*v as u128, 32),
+			Val::Int64(v)  => (*v as u128, 64),
+			Val::Int128(v) => (*v,         128),
+			_ => return None,
+		})
 	}
 
 	pub fn from_ibig(i: &IBig, ty: &Type) -> Option<Self> {
 		Some(match ty {
+			Type::Usize | Type::Isize => match std::mem::size_of::<usize>() {
+				1 | 2 => Val::Int16(i.try_as_u32()?.try_into().ok()?),
+				4     => Val::Int32(i.try_as_u32()?),
+				8     => Val::Int64(i.try_as_u64()?),
+				16    => Val::Int128(i.try_as_u128()?),
+				_     => unreachable!(),
+			},
 			Type::U(..8)   | Type::I(..8)   => Val::Int8(i.try_as_u32()?.try_into().ok()?),
 			Type::U(..16)  | Type::I(..16)  => Val::Int16(i.try_as_u32()?.try_into().ok()?),
 			Type::U(..32)  | Type::I(..32)  => Val::Int32(i.try_as_u32()?),
@@ -192,6 +178,7 @@ impl Val {
 		})
 	}
 }
+
 
 impl Display for Value {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -210,9 +197,9 @@ impl Display for Val {
 			Val::Int128(v) => write!(f, "{v}"),
 			Val::CFn(_, p) => write!(f, "cfn@{p:p}"),
 			Val::Ptr(s)    => write!(f, "{s:p}"),
+			Val::FatPtr(p, m) => write!(f, "({p:p}; {m})"),
 			// warn user if this prints
 			Val::Ret(base) => write!(f, "{{ret: {base}}}"),
-			Val::FatPtr(p, m) => write!(f, "({p:p}; {m})"),
 		}
 	}
 }

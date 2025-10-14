@@ -6,6 +6,8 @@ pub enum MiriError {
 	RuntimeError,
 	InvalidInstruction,
 	IntSizeLimitExceeded,
+	InvalidArity,
+	DivideByZero,
 }
 
 impl std::fmt::Display for MiriError {

@@ -40,7 +40,7 @@ let<T> box = |v: T|: Box(T) {
 	let<T> malloc = extern "malloc" |size: usize|: raw &mut T;
 	let ptr = malloc(core::tyinfo(T).size);
 	*ptr = v;
-	ptr
+	Box(T)(ptr)
 };
 
 impl<T> core::Drop |self: Box(T)| {

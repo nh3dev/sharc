@@ -10,7 +10,6 @@ pub enum Node<'src, 'b> {
 
 	Let {
 		ident: Sp<&'src str>,
-		ty:    Option<&'b RefCell<Type<'src, 'b>>>,
 		gener: &'b [&'b RefCell<Type<'src, 'b>>], // TODO bounds, default vals
 		expr:  &'b Ty<'src, 'b, Sp<Node<'src, 'b>>>,
 		stat:  bool, // static // maybe 
@@ -22,10 +21,7 @@ pub enum Node<'src, 'b> {
 		expr:    &'b Ty<'src, 'b, Sp<Node<'src, 'b>>>,
 	},
 
-	Ident {
-		lit:   Sp<&'src str>, 
-		gener: &'b [&'b RefCell<Type<'src, 'b>>], // TODO bounds, default vals
-	},
+	Ident(&'src str),
 	StrLit(&'b str),
 	IntLit(crate::bigint::IBig<'b>),
 	ArrayLit(&'b [Ty<'src, 'b, Sp<Node<'src, 'b>>>], Option<u64>), // [u8], [20, 3, 8], [u16; 10]
@@ -40,7 +36,7 @@ pub enum Node<'src, 'b> {
 	},
 	Lambda {
 		args:   &'b [LambdaArg<'src, 'b>],
-		ret:    Option<&'b RefCell<Type<'src, 'b>>>,
+		ret:    &'b RefCell<Type<'src, 'b>>,
 		body:   Option<&'b Ty<'src, 'b, Sp<Node<'src, 'b>>>>,
 		ext:    Option<Sp<&'b str>>,
 		export: Option<Sp<&'b str>>,
@@ -61,6 +57,11 @@ pub enum Node<'src, 'b> {
 	// BINARY EXPR
 	Store(&'b Ty<'src, 'b, Sp<Node<'src, 'b>>>, &'b Ty<'src, 'b, Sp<Node<'src, 'b>>>), // foo = 20
 	Field(&'b Ty<'src, 'b, Sp<Node<'src, 'b>>>, &'b Ty<'src, 'b, Sp<Node<'src, 'b>>>), // foo: bar
+	Add(&'b Ty<'src, 'b, Sp<Node<'src, 'b>>>, &'b Ty<'src, 'b, Sp<Node<'src, 'b>>>),
+	Sub(&'b Ty<'src, 'b, Sp<Node<'src, 'b>>>, &'b Ty<'src, 'b, Sp<Node<'src, 'b>>>),
+	Mul(&'b Ty<'src, 'b, Sp<Node<'src, 'b>>>, &'b Ty<'src, 'b, Sp<Node<'src, 'b>>>),
+	Div(&'b Ty<'src, 'b, Sp<Node<'src, 'b>>>, &'b Ty<'src, 'b, Sp<Node<'src, 'b>>>),
+	Mod(&'b Ty<'src, 'b, Sp<Node<'src, 'b>>>, &'b Ty<'src, 'b, Sp<Node<'src, 'b>>>),
 }
 
 #[derive(Debug)]
@@ -83,9 +84,9 @@ pub trait TypeInf {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Type<'src, 'b> {
-	pub ident: Option<Sp<&'src str>>, // newtypes
+	pub ident: Option<Sp<&'b Node<'src, 'b>>>, // newtypes
 	pub kind:  TypeKind<'src, 'b>,
 }
 
@@ -100,16 +101,15 @@ impl<'src, 'b> Type<'src, 'b> {
 		Type { ident: None, kind }
 	}
 
-	pub fn with_ident(ident: Sp<&'src str>, kind: TypeKind<'src, 'b>) -> Self {
+	pub fn with_ident(ident: Sp<&'b Node<'src, 'b>>, kind: TypeKind<'src, 'b>) -> Self {
 		Type { ident: Some(ident), kind }
 	}
 }
 
-pub const CONSTRAINT_VEC_SIZE: usize = 4;
-
 #[derive(Debug, PartialEq)]
 pub enum TypeKind<'src, 'b> {
-	Generic(usize, bump::Vec<'b, TypeKind<'src, 'b>>),
+	// should always get dropped manually so we never leak
+	Generic(usize, Vec<Sp<&'b RefCell<Type<'src, 'b>>>>),
 
 	Array(&'b RefCell<Type<'src, 'b>>, Option<u64>),
 	Union(&'b [&'b RefCell<Type<'src, 'b>>]),
@@ -120,9 +120,31 @@ pub enum TypeKind<'src, 'b> {
 	Usize, Isize,
 	None, Never, Type,
 	// Type(Rc<'b, RefCell<Type<'src, 'b>>>),
-	Fn(&'b [&'b RefCell<Type<'src, 'b>>], Option<&'b RefCell<Type<'src, 'b>>>),
+	Fn(&'b [&'b RefCell<Type<'src, 'b>>], &'b RefCell<Type<'src, 'b>>),
 }
 
+impl Clone for TypeKind<'_, '_> {
+	fn clone(&self) -> Self {
+		match self {
+			Self::Generic(v, c) => panic!("Generic types should not be cloned"),
+			Self::Array(t, s) => Self::Array(t, *s),
+			Self::Union(v)    => Self::Union(v),
+			Self::Struct(f)   => Self::Struct(f),
+			Self::U(n)   => Self::U(*n),
+			Self::I(n)   => Self::I(*n),
+			Self::B(n)   => Self::B(*n),
+			Self::F(n)   => Self::F(*n),
+			Self::Ref(t) => Self::Ref(t),
+			Self::Mut(t) => Self::Mut(t),
+			Self::Usize  => Self::Usize,
+			Self::Isize  => Self::Isize,
+			Self::None   => Self::None,
+			Self::Never  => Self::Never,
+			Self::Type   => Self::Type,
+			Self::Fn(a, r) => Self::Fn(a, r),
+		}
+	}
+}
 
 fn join_tostring(iter: impl IntoIterator<Item = impl ToString>, s: &str) -> String {
 	iter.into_iter().map(|e| ToString::to_string(&e)).collect::<std::vec::Vec<_>>().join(s)
@@ -137,11 +159,11 @@ impl Display for Node<'_, '_> {
 		match self {
 			Self::None => write!(f, "{}", "none".dimmed()),
 
-			Self::Let { ident, ty, gener, expr, stat } =>
-				write!(f, "{} {ident}{}{} = {expr}",
+			Self::Let { ident, gener, expr, stat } =>
+				write!(f, "{} {ident}{}: {} = {}",
 					if *stat { "static" } else { "let" }.yellow().dimmed(),
 					if gener.is_empty() { String::new() } else { format!("<{}>", join_cell_tostring(*gener, ", ")) },
-					if let Some(ty) = ty { format!(": {}", ty.borrow()) } else { String::new() } ),
+					expr.ty.borrow(), expr.elem),
 
 			Self::Loop { initlet, expr, .. } => {
 				write!(f, "{} ", "loop".yellow().dimmed())?;
@@ -153,9 +175,7 @@ impl Display for Node<'_, '_> {
 				write!(f, "{expr}")
 			},
 
-			Self::Ident { lit, gener } => 
-				write!(f, "{}{}", lit.normal(), 
-					if gener.is_empty() { String::new() } else { format!("<{}>", join_cell_tostring(*gener, ", ")) }),
+			Self::Ident(sym) => write!(f, "{}", sym.normal()),
 			Self::StrLit(s) => write!(f, "{}", format!("{s:?}").green()),
 			Self::IntLit(i) => write!(f, "{}", i.to_string().cyan()),
 			Self::ArrayLit(arr, size) => {
@@ -199,9 +219,8 @@ impl Display for Node<'_, '_> {
 					write!(f, "{arg}")?;
 					if i != args.len() - 1 { write!(f, ", ")?; }
 				}
-				write!(f, "|")?;
+				write!(f, "|: {}", ret.borrow())?;
 
-				if let Some(ret) = ret { write!(f, ": {}", ret.borrow())?; }
 				if let Some(body) = body { write!(f, " {body}")?; }
 				write!(f, ";")?;
 
@@ -219,7 +238,7 @@ impl Display for Node<'_, '_> {
 
 			Self::ImplCall { path, ident, gener, vals } => {
 				write!(f, "{}::{}", join_tostring(&**path, "::"), ident.red())?;
-				if !gener.is_empty() { write!(f, "<{}>", join_cell_tostring(*gener, ", "))?; }
+				if !gener.is_empty() { write!(f, "({})", join_cell_tostring(*gener, ", "))?; }
 				write!(f, "(")?;
 				if !vals.is_empty() { write!(f, "{}", join_tostring(*vals, ", "))?; }
 				write!(f, ")")
@@ -234,6 +253,12 @@ impl Display for Node<'_, '_> {
 			Self::Move(expr)  => write!(f, "{} {expr}", "move".yellow().dimmed()),
 			Self::Store(a, b) => write!(f, "{a} = {b}"),
 			Self::Field(a, b) => write!(f, "{a}: {b}"),
+
+			Self::Add(a, b) => write!(f, "({a} + {b})"),
+			Self::Sub(a, b) => write!(f, "({a} - {b})"),
+			Self::Mul(a, b) => write!(f, "({a} * {b})"),
+			Self::Div(a, b) => write!(f, "({a} / {b})"),
+			Self::Mod(a, b) => write!(f, "({a} % {b})"),
 		}
 	}
 }
@@ -276,11 +301,11 @@ impl fmt::Display for TypeKind<'_, '_> {
 					write!(f, "{}", arg.borrow())?;
 					if i != args.len() - 1 { write!(f, ", ")?; }
 				}
-				if let Some(ret) = ret { write!(f, "): {}", ret.borrow())?; } else { write!(f, ")")?; }
+				write!(f, "): {}", ret.borrow())?;
 				Ok(())
 			},
 			k => write!(f, "{}", match k {
-				Self::Generic(v, c) => format!("${v}{c:?}"),
+				Self::Generic(v, c) => format!("${v}[{}]", join_tostring(c.iter().map(|c| c.borrow()), ", ")),
 				Self::U(u)  => format!("u{u}"),
 				Self::I(i)  => format!("i{i}"),
 				Self::B(b)  => format!("b{b}"),

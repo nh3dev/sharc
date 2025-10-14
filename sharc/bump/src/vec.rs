@@ -1,4 +1,5 @@
 use std::mem::MaybeUninit;
+use std::mem::ManuallyDrop;
 
 /// By default Drop will call drop on all elements in the Vec.
 pub struct Vec<'b, T> {
@@ -12,7 +13,15 @@ impl crate::Bump {
 	}
 }
 
+impl<T> Default for Vec<'_, T> {
+	fn default() -> Self { Self::empty() }
+}
+
 impl<'b, T> Vec<'b, T> {
+	pub const fn empty() -> Self {
+		Self { len: 0, slice: &mut [] }
+	}
+
 	pub fn as_slice(&self) -> &[T] {
 		unsafe { std::slice::from_raw_parts(self.slice.as_ptr() as *const T, self.len) }
 	}
@@ -44,6 +53,8 @@ impl<'b, T> Vec<'b, T> {
 		})
 	}
 
+	/// # Safety
+	/// The caller must ensure that the Vec is not full.
 	pub unsafe fn push_unchecked(&mut self, elem: T) {
 		unsafe { *self.slice.get_unchecked_mut(self.len) = MaybeUninit::new(elem); }
 		self.len += 1;
@@ -53,6 +64,18 @@ impl<'b, T> Vec<'b, T> {
 		(self.len > 0).then(|| {
 			self.len -= 1;
 			unsafe { std::ptr::read(self.slice.get_unchecked(self.len).as_ptr()) }
+		})
+	}
+
+	/// Removes the first element by shrinking the allocation.
+	pub fn shrink_pop_front(&mut self) -> Option<T> {
+		(self.len > 0).then(|| {
+			let elem = unsafe { std::ptr::read(self.slice.get_unchecked(0).as_ptr()) };
+			self.slice = unsafe { 
+				std::slice::from_raw_parts_mut(self.slice.as_mut_ptr().add(1), self.slice.len() - 1) 
+			};
+			self.len -= 1;
+			elem
 		})
 	}
 
@@ -115,10 +138,42 @@ impl<T> std::ops::IndexMut<usize> for Vec<'_, T> {
 	}
 }
 
+pub struct IntoIter<'b, T> {
+	vec:   ManuallyDrop<Vec<'b, T>>,
+	index: usize,
+}
+
+impl<'b, T> IntoIterator for Vec<'b, T> {
+	type Item = T;
+	type IntoIter = IntoIter<'b, T>;
+
+	fn into_iter(self) -> Self::IntoIter {
+		IntoIter { vec: ManuallyDrop::new(self), index: 0 }
+	}
+}
+
+impl<T> Iterator for IntoIter<'_, T> {
+	type Item = T;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		(self.index < self.vec.len).then(|| {
+			let elem = unsafe { std::ptr::read(self.vec.slice.get_unchecked(self.index).as_ptr()) };
+			self.index += 1;
+			elem
+		})
+	}
+
+	fn size_hint(&self) -> (usize, Option<usize>) {
+		let len = self.vec.len - self.index;
+		(len, Some(len))
+	}
+}
+
+impl<T> ExactSizeIterator for IntoIter<'_, T> {}
+
 impl<T> Extend<T> for Vec<'_, T> {
 	/// # Panics
 	/// Panics if the Vec overflows. iter_len > vec_capacity - vec_len
-	///
 	fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
 		iter.into_iter().for_each(|e| self.push(e).expect("Vec full"));
 	}
@@ -126,7 +181,7 @@ impl<T> Extend<T> for Vec<'_, T> {
 
 // should this even be here?
 pub trait CollectWith<T>: IntoIterator<Item = T> + Sized {
-	fn collect_with<E: Extend<Self::Item>>(self, mut acc: E) -> E {
+	fn collect_with<E: Extend<T>>(self, mut acc: E) -> E {
 		acc.extend(self); acc
 	}
 }
