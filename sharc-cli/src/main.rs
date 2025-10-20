@@ -14,7 +14,7 @@ fn compile_mir<'b>(conf: sharc::CompilerOptions, code: &str, filename: Option<&s
 		.compile(code, filename.unwrap_or("<repl>")) {
 		Ok(mir) => Ok(mir),
 		Err(e) => {
-			println!("\n{}", motd::get_fail_msg().bold().red());
+			println!("{}", motd::get_fail_msg().bold().red());
 			println!("{}: Could not compile due to {e} error{}", "error".red().bold(), if e == 1 { "" } else { "s" });
 			Err(())
 		}

@@ -28,6 +28,7 @@ pub fn get_fail_msg() -> &'static str {
 		"shard failed",
 		"lost and (never) found",
 		"why do you believe me?!?!?",
+		"lol",
 	];
 
 	MSGS[rand() as usize % MSGS.len()]

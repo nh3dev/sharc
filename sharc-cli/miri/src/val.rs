@@ -174,6 +174,13 @@ impl Val {
 			Type::U(..32)  | Type::I(..32)  => Val::Int32(i.try_as_u32()?),
 			Type::U(..64)  | Type::I(..64)  => Val::Int64(i.try_as_u64()?),
 			Type::U(..128) | Type::I(..128) => Val::Int128(i.try_as_u128()?),
+			Type::Ptr(_) => match std::mem::size_of::<*mut c_void>() { 
+				1 | 2 => Val::Ptr(i.try_as_u32()? as *mut c_void),
+				4     => Val::Ptr(i.try_as_u32()? as *mut c_void),
+				8     => Val::Ptr(i.try_as_u64()? as *mut c_void),
+				16    => Val::Ptr(i.try_as_u128()? as *mut c_void),
+				_     => unreachable!(),
+			},
 			_ => return None,
 		})
 	}

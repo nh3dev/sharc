@@ -1,5 +1,6 @@
 use std::fmt::{self, Display};
 use std::cell::RefCell;
+
 use colored::Colorize;
 
 use crate::span::Sp;
@@ -126,7 +127,7 @@ pub enum TypeKind<'src, 'b> {
 impl Clone for TypeKind<'_, '_> {
 	fn clone(&self) -> Self {
 		match self {
-			Self::Generic(v, c) => panic!("Generic types should not be cloned"),
+			Self::Generic(_, _) => panic!("Generic types should not be cloned"),
 			Self::Array(t, s) => Self::Array(t, *s),
 			Self::Union(v)    => Self::Union(v),
 			Self::Struct(f)   => Self::Struct(f),
@@ -147,11 +148,15 @@ impl Clone for TypeKind<'_, '_> {
 }
 
 fn join_tostring(iter: impl IntoIterator<Item = impl ToString>, s: &str) -> String {
-	iter.into_iter().map(|e| ToString::to_string(&e)).collect::<std::vec::Vec<_>>().join(s)
+	iter.into_iter().map(|e| e.to_string())
+		.reduce(|a, b| a + s + &b)
+		.unwrap_or_default()
 }
 
 fn join_cell_tostring<'a>(iter: impl IntoIterator<Item = &'a &'a RefCell<impl ToString + 'a>>, s: &str) -> String {
-	iter.into_iter().map(|e| ToString::to_string(&*e.borrow())).collect::<std::vec::Vec<_>>().join(s)
+	iter.into_iter().map(|e| e.borrow().to_string())
+		.reduce(|a, b| a + s + &b)
+		.unwrap_or_default()
 }
 
 impl Display for Node<'_, '_> {

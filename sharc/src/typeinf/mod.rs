@@ -114,16 +114,15 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 		// FIXME: hacky mess
 		match &node.elem.elem {
 			TyNode::Primitive(ty) => Some(ty),
-			TyNode::ArrayLit(t, s) => { 
-				let id = self.newid();
-
-				let cons = t.iter()
-					.filter_map(|e| self.eval_node_as_type(e).map(|t| t.span(e.elem.span)))
-					.collect();
-
-				let ty = self.bump.alloc(RefCell::new(Type::new(TypeKind::Generic(id, cons))));
-
+			TyNode::ArrayLit([t], s) => { 
+				let ty = self.eval_node_as_type(t)?;
 				Some(self.bump.alloc(RefCell::new(Type::new(TypeKind::Array(ty, *s)))))
+			},
+			TyNode::ArrayLit(t, s) => {
+				self.log(ReportKind::TypeError
+					.title(format!("array type expects 1 argument, found {}", t.len()))
+					.span(node.elem.span));
+				return None;
 			},
 			TyNode::ImplCall { path, ident, vals, .. }
 				if *path == statics::CORE_PATH && ident.elem == "Ref" => {
@@ -142,7 +141,6 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 	// pass 1
 	fn infer_node(&mut self, node: &Sp<Node<'src, 'bo>>) 
 		-> Option<Ty<'src, 'b, Sp<TyNode<'src, 'b>>>> {
-
 		Some(match &node.elem {
 			Node::Primitive(p) => {
 				let kind = match p {
@@ -334,7 +332,29 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 					.collect_with(bump.alloc_vec(args.len()));
 
 				let ty = match &mut lhs.ty.borrow_mut().kind {
-					TypeKind::Fn(_, ret) => ret, // FIXME: check args?
+					TypeKind::Fn(args, ret) => {
+						if args.len() != args_out.len() {
+							self.log(ReportKind::InvalidArity
+								.title(format!("expected {} arguments, found {}", args.len(), args_out.len()))
+								.span(node.span));
+							return None;
+						}
+
+						args.iter().zip(args_out.iter()).for_each(|(exp, act)| {
+							if let TypeKind::Generic(_, cons) = &mut act.ty.borrow_mut().kind {
+								cons.insert(0, (*exp).span(act.elem.span));
+								return;
+							}
+
+							if exp.borrow().kind != act.ty.borrow().kind && !Self::constraint_compatible(exp, &act.ty) {
+								self.log(ReportKind::TypeError
+									.title(format!("expected `{}`, found `{}`", exp.borrow(), act.ty.borrow()))
+									.span(act.elem.span));
+							}
+						});
+
+						ret
+					},
 					TypeKind::Generic(_, cons) => {
 						let id = self.newid();
 						let ret = self.bump.alloc(RefCell::new(Type::new(TypeKind::Generic(id, Vec::new()))));
@@ -487,7 +507,8 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 					match cons_ty {
 						Some(t) if !Self::constraint_compatible(t, c) => {
 							self.log(ReportKind::TypeError
-								.title(format!("cannot unify `{}` and `{}`", t.borrow().kind, c.borrow().kind)));
+								.title(format!("cannot unify into `{}`, got `{}`", t.borrow().kind, c.borrow().kind))
+								.span(c.span));
 							continue;
 						},
 						None => cons_ty = Some(c),
@@ -516,6 +537,13 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 				| (TypeKind::Isize, TypeKind::I(_))
 				| (TypeKind::U(_), TypeKind::U(_) | TypeKind::Usize)
 				| (TypeKind::I(_), TypeKind::I(_) | TypeKind::Isize) => true,
+
+			(TypeKind::Ref(a), TypeKind::Array(t, Some(_))) if let TypeKind::Array(f, None) = a.borrow().kind => Self::constraint_compatible(f, t),
+
+			(TypeKind::Array(f, Some(fs)), TypeKind::Array(t, Some(ts)) ) => {
+				if fs != ts { return false; }
+				Self::constraint_compatible(f, t)
+			},
 
 			_ => false,
 		}
