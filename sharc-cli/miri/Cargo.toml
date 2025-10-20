@@ -7,4 +7,4 @@ edition.workspace = true
 sharc.workspace        = true
 colored.workspace      = true
 compile-warn.workspace = true
-libffi = "4.1"
+libffi = "5.0"

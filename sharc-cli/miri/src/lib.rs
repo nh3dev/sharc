@@ -71,14 +71,14 @@ impl<'b> Runtime {
 
 	pub fn run(&mut self, mir: sharc::mir::Mir<'b>) -> Result<Value> {
 		self.bump = mir.bump;
-		Ok(self.eval_mir_block(&mir.nodes)?.into_owned())
+		Ok(self.eval_mir_block(&mir.nodes)?)
 	}
 
-	fn eval_mir_block(&mut self, block: &[Node<'b>]) -> Result<Sheep<Value>> {
+	fn eval_mir_block(&mut self, block: &[Node<'b>]) -> Result<Value> {
 		self.stack.push(Value::new(Val::Ret(self.base), Type::None));
 		self.base = self.stack.len();
 
-		let ret = self.eval_mir_block_inner(block)?;
+		let ret = self.eval_mir_block_inner(block)?.into_owned();
 		self.stack.truncate(self.base);
 
 		let Value { val: Val::Ret(base), .. } = self.stack.pop().unwrap()
@@ -170,7 +170,8 @@ impl<'b> Runtime {
 			},
 			Expr::Call { id, ty, args } => {
 				let func = self.resolve_var(&Var::Local(*id), ty)?;
-				let args = args.iter().map(|(v, t)| Ok(self.resolve_var(v, t)?.val.as_arg())).collect::<Result<Vec<_>>>()?;
+				let args = args.iter().map(|(v, t)| self.resolve_var(v, t)).collect::<Result<Vec<_>>>()?;
+				let args = args.iter().map(|v| v.val.as_arg()).collect::<Vec<_>>();
 
 				let Val::CFn(ref cif, fptr) = func.val else { 
 					return MiriError::InvalidInstruction

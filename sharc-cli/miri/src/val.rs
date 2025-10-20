@@ -141,8 +141,8 @@ pub enum Val {
 	Int32(u32),
 	Int64(u64),
 	Int128(u128),
-	CFn(libffi::middle::Cif, libffi::middle::CodePtr),
-	FatPtr(*mut c_void, usize),
+	CFn(libffi::middle::Cif, libffi::middle::CodePtr), 
+	FatPtr((*mut c_void, usize)),
 	Ptr(*mut c_void),
 
 	Ret(usize),
@@ -204,7 +204,7 @@ impl Display for Val {
 			Val::Int128(v) => write!(f, "{v}"),
 			Val::CFn(_, p) => write!(f, "cfn@{p:p}"),
 			Val::Ptr(s)    => write!(f, "{s:p}"),
-			Val::FatPtr(p, m) => write!(f, "({p:p}; {m})"),
+			Val::FatPtr((p, m)) => write!(f, "({p:p}; {m})"),
 			// warn user if this prints
 			Val::Ret(base) => write!(f, "{{ret: {base}}}"),
 		}

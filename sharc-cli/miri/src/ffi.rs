@@ -74,9 +74,9 @@ impl RawVal {
 				),
 				Type::Ptr(_) => Val::Ptr(self.ptr),
 				Type::Never => 
-				return MiriError::InvalidInstruction
-					.title("cannot convert a rawval to a value of type never")
-					.as_err(),
+					return MiriError::InvalidInstruction
+						.title("cannot convert a rawval to a value of type never")
+						.as_err(),
 				Type::U(_) | Type::I(_) => panic!(),
 
 				// TODO: somehow impl sized arrays
@@ -98,7 +98,7 @@ impl Val {
 			Self::Int128(v) => Arg::new(v),
 			Self::CFn(_, p) => Arg::new(p),
 			Self::Ptr(s)    => Arg::new(s),
-			Self::FatPtr(p, m) => Arg::new(&(*p, *m)),
+			Self::FatPtr(a) => Arg::new(a),
 			Self::Ret(_)    => panic!(),
 		}
 	}

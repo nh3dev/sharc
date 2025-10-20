@@ -374,7 +374,7 @@ impl<'src, 'b, 'r> Parser<'src, 'b, 'r> {
 		};
 
 		let body = match self.current().kind {
-			TokenKind::Semicolon => None,
+			t if t.is_delim() => None,
 			_ => {
 				let expr = self.parse_expr(0)?;
 				Some(self.bump.alloc(expr))
