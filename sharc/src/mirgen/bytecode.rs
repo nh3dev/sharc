@@ -154,12 +154,11 @@ impl Serialize for Node<'_> {
 				id.serialize(b)?;
 				ident.serialize(b)
 			},
-			Node::DefFn { id, args, ret, def_proc, body } => {
+			Node::DefFn { id, args, ret, body } => {
 				4_u8.serialize(b)?;
 				id.serialize(b)?;
 				args.serialize(b)?;
 				ret.serialize(b)?;
-				def_proc.serialize(b)?;
 				body.serialize(b)
 			},
 		}
@@ -277,7 +276,6 @@ impl Deserialize for Node<'_> {
 				id:       Deserialize::deserialize(bump, b)?,
 				args:     Deserialize::deserialize(bump, b)?, 
 				ret:      Deserialize::deserialize(bump, b)?,
-				def_proc: Deserialize::deserialize(bump, b)?,
 				body:     Deserialize::deserialize(bump, b)?,
 			},
 			_ => return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Tag")),

@@ -98,6 +98,19 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 
 		let var = match &node.elem.elem {
 			hir::Node::None => Var::None,
+
+			// TODO!: handle block in diff contexts?
+			hir::Node::Block(nodes_hir) => {
+				let mut last_var = Var::None;
+				for (i, n) in nodes_hir.iter().enumerate() {
+					let is_ret = ret && i == nodes_hir.len() - 1;
+					let (var, _, mut n_nodes) = self.process_node(is_ret, n)?;
+					nodes.extend(n_nodes);
+					last_var = var;
+				}
+				last_var
+			},
+
 			hir::Node::ImplCall { path, ident, gener, vals } => {
 				let gener = self.bump.alloc_from_iter(gener.iter().map(|g| self.process_type(g)));
 
@@ -229,8 +242,8 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 				Var::Local(valid)
 			},
 			hir::Node::Lambda { args, ret, ext: Some(sym), .. } => {
-				let has_default = args.iter().any(|a| a.default.is_some());
-				if has_default { todo!() }
+				// TODO: prob disallow default args for externs
+				if args.iter().any(|a| a.default.is_some()) { todo!() }
 
 				let args = self.bump.alloc_from_iter(args.iter().map(|a| self.process_type(a.ty)));
 				let ret = self.process_type(ret);
@@ -245,11 +258,47 @@ impl<'r, 'src, 'bo, 'b> Analyzer<'r, 'src, 'bo, 'b> {
 
 				Var::Local(id)
 			},
+			hir::Node::Lambda { args, ret, export, body: Some(body), .. } => {
+				self.scope.push(Scope::default());
+
+				let args = its_fine!(self.bump).alloc_from_iter(args.iter()
+					.map(|hir::LambdaArg { ident, ty, default }| {
+						let id = self.scope().id();
+						let ty = self.process_type(ty);
+						let ident = self.bump.alloc_str(ident.elem);
+
+						self.scope().locals.push((ident, id, ty));
+
+						(id, ty, default.as_ref().map(|_| todo!()))
+					}));
+
+				let (_, _, body) = self.process_node(true, body)?;
+
+				self.scope.pop();
+
+				let fid = self.scope().id();
+
+				nodes.push(Node::DefFn { 
+					id: fid, 
+					args, 
+					body: self.bump.alloc_from_vec(body),
+					ret:  self.process_type(ret), 
+				});
+
+				let id = self.scope().id();
+
+				nodes.push(Node::Assign { 
+					id, ty: self.process_type(node.ty),
+					expr: Expr::FuncCapture { fid, args: &[] }
+				});
+
+				Var::Local(id)
+			},
 			hir::Node::FuncCall { lhs, args } => {
 				let (var, ty, n_nodes) = self.process_node(false, lhs)?;
 
 				let cid = match var {
-					// TODO: Imm is technically legal, but this can never possibly get reached
+					// NOTE: Imm is technically legal, but this can never possibly happen
 					Var::None | Var::Imm(_) => unreachable!(),
 					Var::Local(id) => id,
 				};

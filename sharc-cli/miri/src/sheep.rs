@@ -1,3 +1,4 @@
+#[derive(Clone)]
 pub enum Sheep<T: Clone> {
 	Owned(T),
 	Ptr(*mut T),
@@ -22,6 +23,13 @@ impl<T: Clone> Sheep<T> {
 		match self {
 			Sheep::Owned(v) => v,
 			Sheep::Ptr(v)   => unsafe { (*v).clone() },
+		}
+	}
+
+	pub unsafe fn make_owned(sheep: Self) -> T {
+		match sheep {
+			Sheep::Owned(v) => v,
+			Sheep::Ptr(v)   => unsafe { std::ptr::read(v) },
 		}
 	}
 }

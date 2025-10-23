@@ -126,7 +126,6 @@ impl TokenKind {
 	}
 
 	pub fn is_delim(self) -> bool {
-		matches!(self, Self::Semicolon | Self::LBrace | Self::RParen 
-			| Self::RBracket | Self::RBrace | Self::Comma | Self::Pipe | Self::EOF)
+		matches!(self, Self::Semicolon | Self::RParen | Self::RBracket | Self::RBrace | Self::Comma | Self::Pipe | Self::EOF)
 	}
 }

@@ -34,7 +34,7 @@ impl crate::val::Type {
 
 // needed so we can have libffi func calls return
 pub union RawVal {
-	none: (),
+	pub none: (),
 	int8: u8,
 	int16: u16,
 	int32: u32,
@@ -99,6 +99,8 @@ impl Val {
 			Self::CFn(_, p) => Arg::new(p),
 			Self::Ptr(s)    => Arg::new(s),
 			Self::FatPtr(a) => Arg::new(a),
+			Self::SharcFnDef(_) => panic!(),
+			Self::SharcFnClosure(_, c) => Arg::new(c.code_ptr()),
 			Self::Ret(_)    => panic!(),
 		}
 	}

@@ -320,8 +320,62 @@ impl<'src, 'bo, 'b, 'r> TypeInf<'src, 'bo, 'b, 'r> {
 				let ty = RefCell::new(Type::new(TypeKind::Array(self.types.u8, Some(s.len() as u64))));
 				TyNode::StrLit(self.bump.alloc_str(s)).span(node.span).typed(self.bump.alloc(ty))
 			},
-			Node::Lambda { args, ret, export, .. } => {
-				todo!();
+			// TODO: export lambda without body
+			Node::Lambda { args, ret, export, body: Some(body), .. } => {
+				self.push_scope(ScopeKind::Func);
+
+				let mut args_out = self.bump.alloc_vec(args.len());
+				let mut args_ty  = self.bump.alloc_vec(args.len());
+
+				for LambdaArg { ident, ty, default } in args.iter() {
+					let ty = match ty {
+						Some(t) => self.infer_node(t).and_then(|n| self.eval_node_as_type(&n))?,
+						None    => {
+							let id = self.newid();
+							let ty = self.bump.alloc(RefCell::new(Type::new(TypeKind::Generic(id, Vec::new()))));
+							ty
+						},
+					};
+
+					args_ty.push(ty);
+
+					args_out.push(TyLambdaArg {
+						ty, ident: *ident,
+						default: match default {
+							Some(d) => Some(self.infer_node(d)?),
+							None    => None,
+						},
+					});
+
+					self.scope().push_sym(ident.elem, ty);
+				}
+
+				let body = self.infer_node(body)?;
+
+				let ret = match ret {
+					Some(r) => {
+						let ret = self.infer_node(r).and_then(|n| self.eval_node_as_type(&n))?;
+						
+						if body.ty.borrow().kind != ret.borrow().kind && !Self::constraint_compatible(&body.ty, &ret) {
+							self.log(ReportKind::TypeError
+								.title(format!("expected `{}`, found `{}`", ret.borrow().kind, body.ty.borrow().kind))
+								.span(body.elem.span));
+						}
+
+						ret
+					},
+					None    => body.ty,
+				};
+
+				let ty = self.bump.alloc(RefCell::new(Type::new(TypeKind::Fn(args_ty.into_slice(), ret))));
+
+				TyNode::Lambda { 
+					ret,
+					args: args_out.into_slice(),
+					body: Some(self.bump.alloc(body)),
+					ext:  None,
+					export: export.map(|e| self.bump.alloc_str(e.elem).span(e.span)),
+				}.span(node.span).typed(ty)
 			},
 			Node::FuncCall { lhs, args } => {
 				let lhs = self.infer_node(lhs)?;

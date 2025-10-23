@@ -5,6 +5,7 @@ pub enum MiriError {
 	#[default]
 	RuntimeError,
 	InvalidInstruction,
+	InvalidConversion,
 	IntSizeLimitExceeded,
 	InvalidArity,
 	DivideByZero,

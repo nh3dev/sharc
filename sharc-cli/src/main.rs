@@ -27,7 +27,6 @@ fn main() {
 
 	match args.action {
 		args::Action::Miri { file: None } => {
-			let mut rt = miri::Runtime::new();
 			loop {
 				eprint!("> ");
 				std::io::Write::flush(&mut std::io::stderr()).unwrap();
@@ -46,7 +45,7 @@ fn main() {
 					eprintln!("\n{}", "MIRI".bold());
 				}
 
-				match rt.run(mir) {
+				match miri::Runtime::new().run(mir) {
 					Ok(v)  => println!("{v}"),
 					Err(e) => LOGGER.lock().unwrap().log(e),
 				}

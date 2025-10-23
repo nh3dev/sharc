@@ -52,9 +52,8 @@ pub enum Node<'b> {
 	},
 	DefFn {
 		id:   ValId,
-		args: &'b [(ValId, &'b Type<'b>)],
+		args: &'b [(ValId, &'b Type<'b>, Option<&'b [Node<'b>]>)],
 		ret:  &'b Type<'b>,
-		def_proc: &'b [(ValId, &'b [Node<'b>])],
 		body: &'b [Node<'b>],
 	},
 	Ret(Var<'b>, &'b Type<'b>),
@@ -114,7 +113,7 @@ pub enum Type<'b> {
 }
 
 fn join_tostring(iter: impl IntoIterator<Item = impl ToString>, s: &str) -> String {
-	iter.into_iter().map(|e| ToString::to_string(&e)).collect::<std::vec::Vec<_>>().join(s)
+	iter.into_iter().map(|e| e.to_string()).reduce(|a, b| a + s + &b).unwrap_or_default()
 }
 
 impl fmt::Display for Node<'_> {
@@ -124,21 +123,16 @@ impl fmt::Display for Node<'_> {
 			Self::Dbg { id, ident } => write!(f, "{} %{id} = {ident:?};", "dbg".yellow().dimmed()),
 			Self::Store { to, ty, from } => write!(f, "{to}: {ty} <- {from};"),
 			Self::Ret(v, ty) => write!(f, "{} {v}: {ty};", "return".yellow().dimmed()),
-			Self::DefFn { id, args, ret, def_proc, body } => {
+			Self::DefFn { id, args, ret, body } => {
 				write!(f, "{} fn%{id}({}) -> {ret} {{", 
 					"def".yellow().dimmed(),
-					join_tostring(args.iter().map(|(i, t)| format!("%{i}: {t}")), ", "),
+					join_tostring(args.iter().map(|(i, t, proc)| match proc {
+						Some(proc) => format!("%{i}: {t} = {{{}}}", join_tostring(*proc, " ")),
+						None => format!("%{i}: {t}"),
+					}), ", "),
 				)?;
 
-				for (proc_id, proc_body) in *def_proc {
-					writeln!(f, "  {proc_id}: {{")?;
-					for n in *proc_body {
-						writeln!(f, "    {n}")?;
-					}
-					writeln!(f, "  }}")?;
-				}
-
-				if !def_proc.is_empty() { writeln!(f)?; }
+				if !body.is_empty() { writeln!(f)?; }
 
 				for n in *body {
 					writeln!(f, "  {n}")?;
@@ -160,7 +154,9 @@ impl fmt::Display for Expr<'_> {
 			Self::FuncCapture { fid, args } => write!(f, "fn#{fid}{{{}}}", 
 				join_tostring(args.iter().map(|a| format!("%{a}")), ", ")),
 			Self::StrLit(s) => write!(f, "{}", format!("{s:?}").green()),
-			Self::Call { id, ty, args } => write!(f, "%{id}: {ty}({})", 
+			Self::Call { id, ty, args } => write!(f, "{} %{id}: {ty}{}{}", 
+				"call".yellow().dimmed(),
+				if args.is_empty() { String::new() } else { ", ".to_string() },
 				join_tostring(args.iter().map(|(a, t)| format!("{a}: {t}")), ", ")),
 			Self::ImplCall { path, ident, gener, args } => {
 				if !path.is_empty() {

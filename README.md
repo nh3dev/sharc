@@ -53,14 +53,8 @@ core::Drop(x);
 ```
 
 # TODOS
-- [x] rework parser to support new typing behaviour
-	- [x] rework analysis to follow
-- [ ] make a step in between the ast and mir (hir) which is basically a typed ast
-	- [x] laid the groundwork
-	- [x] no-op version with little to no type inference
-	- [ ] type inference to the moon
-	- [ ] generics into template generation?? (presumably this is checked here, mir just applies templates)
-- [ ] get the website back up 
+- [ ] fix debug formatting for ast/hir to do proper indentation
+- [x] get the website back up 
 	- [x] move shard to faf (also make a faf org)??
 	- [ ] update [sherbert](https://github.com/shard-org/sherbert) with new docs
 	- [ ] sherbert fix syntax highlighting (prob get docs first)

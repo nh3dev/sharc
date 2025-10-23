@@ -2,14 +2,17 @@ use std::ffi::c_void;
 use std::fmt::{self, Display};
 use std::num::Wrapping;
 
-use sharc::mir::{Var, Type as MirType};
+use sharc::mir::{Node, Var, Type as MirType};
 use sharc::report::Reportable;
-use colored::Colorize;
 use sharc::IBig;
 
-use crate::error::{Result, MiriError};
+use colored::Colorize;
 
-#[derive(Debug, Clone)]
+use crate::error::{Result, MiriError};
+use crate::sheep::Sheep;
+use crate::maybedrop::MaybeDrop;
+
+#[derive(Debug, Clone, Default)]
 pub struct Value {
 	pub val: Val,
 	pub ty:  Type,
@@ -103,13 +106,14 @@ impl Value {
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum Type {
 	Usize, Isize,
 	U(u32), I(u32),
 	Fn(Vec<Type>, Box<Type>),
 	Ptr(Box<Type>),
 	Array(Box<Type>, Option<u64>),
+	#[default]
 	None, Never
 }
 
@@ -133,8 +137,9 @@ impl Type {
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default)]
 pub enum Val {
+	#[default]
 	None,
 	Int8(u8),
 	Int16(u16),
@@ -142,10 +147,33 @@ pub enum Val {
 	Int64(u64),
 	Int128(u128),
 	CFn(libffi::middle::Cif, libffi::middle::CodePtr), 
+	SharcFnDef(&'static [Node<'static>]),
+	SharcFnClosure(
+		Box<(*mut crate::Runtime, Vec<Type>, &'static [Node<'static>], Vec<MaybeDrop<Value>>)>, 
+		libffi::middle::Closure<'static>),
 	FatPtr((*mut c_void, usize)),
 	Ptr(*mut c_void),
 
 	Ret(usize),
+}
+
+impl Clone for Val {
+	fn clone(&self) -> Self {
+		match self {
+			Val::None        => Val::None,
+			Val::Int8(v)     => Val::Int8(*v),
+			Val::Int16(v)    => Val::Int16(*v),
+			Val::Int32(v)    => Val::Int32(*v),
+			Val::Int64(v)    => Val::Int64(*v),
+			Val::Int128(v)   => Val::Int128(*v),
+			Val::CFn(cif, ptr) => Val::CFn(cif.clone(), *ptr),
+			Val::Ptr(p)      => Val::Ptr(*p),
+			Val::FatPtr((p, m)) => Val::FatPtr((*p, *m)),
+			Val::SharcFnDef(nodes) => Val::SharcFnDef(nodes.clone()),
+			Val::SharcFnClosure(a, c) => Val::SharcFnClosure(a.clone(), unsafe { std::ptr::read(c) }),
+			Val::Ret(base)  => Val::Ret(*base),
+		}
+	}
 }
 
 impl Val {
@@ -205,6 +233,10 @@ impl Display for Val {
 			Val::CFn(_, p) => write!(f, "cfn@{p:p}"),
 			Val::Ptr(s)    => write!(f, "{s:p}"),
 			Val::FatPtr((p, m)) => write!(f, "({p:p}; {m})"),
+			Val::SharcFnDef(_) => write!(f, "shardfn"),
+			Val::SharcFnClosure(b, c) => write!(f, "sharcfn@{:p}{{{}}}", *c.code_ptr(),
+				b.3.iter().map(|c| c.to_string()).reduce(|a, b| a + ", " + &b).unwrap_or_default()
+			),
 			// warn user if this prints
 			Val::Ret(base) => write!(f, "{{ret: {base}}}"),
 		}
